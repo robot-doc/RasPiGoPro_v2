@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dual WiFi GoPro Manager - Main management class for multiple cameras
+Dual WiFi GoPro Manager - Modified for automatic WiFi connection
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from wifi_camera_controller import WiFiCameraController
 logger = logging.getLogger(__name__)
 
 class DualWiFiGoProManager:
-    """Manager for dual WiFi interface GoPro setup"""
+    """Manager for dual WiFi interface GoPro setup with auto-connection"""
     
     def __init__(self):
         self.config_file = CONFIG_FILE
@@ -38,7 +38,7 @@ class DualWiFiGoProManager:
             try:
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
-                    logger.info(f"📁 Loaded config for {len(config.get('cameras', {}))} cameras")
+                    logger.info(f"[CONFIG] Loaded config for {len(config.get('cameras', {}))} cameras")
                     return config
             except Exception as e:
                 logger.warning(f"Config load error: {e}")
@@ -88,7 +88,7 @@ class DualWiFiGoProManager:
         print()
         
         # Show camera assignments
-        print("Camera → Interface Assignments:")
+        print("Camera -> Interface Assignments:")
         cameras = self.config.get('cameras', {})
         
         for camera_id in ["camera_1", "camera_2"]:
@@ -99,10 +99,10 @@ class DualWiFiGoProManager:
                 camera_config = cameras[camera_id]
                 name = camera_config.get('name', 'Unknown')
                 wifi = camera_config.get('wifi_ssid', 'None')
-                print(f"  [CAM] {name} → {interface} ({interface_status})")
+                print(f"  [CAM] {name} -> {interface} ({interface_status})")
                 print(f"     WiFi: {wifi}")
             else:
-                print(f"  ⚪ {camera_id} → {interface} ({interface_status}) [Not configured]")
+                print(f"  [EMPTY] {camera_id} -> {interface} ({interface_status}) [Not configured]")
         
         print("-" * 50)
     
@@ -181,24 +181,19 @@ class DualWiFiGoProManager:
             if "3811" in device.name:
                 camera_id = "camera_1"
                 assigned_interface = "wlan0"
-                camera_name = f"GoPro 1 ({device.name}) → wlan0"
+                camera_name = f"GoPro 1 ({device.name}) -> wlan0"
             else:
                 camera_id = "camera_2"
                 assigned_interface = "wlan1"
-                camera_name = f"GoPro 2 ({device.name}) → wlan1"
+                camera_name = f"GoPro 2 ({device.name}) -> wlan1"
             
             print(f"\n[CONNECT] Pairing {camera_name}...")
             
             controller = SingleGoProController(camera_id, camera_name, assigned_interface)
             
             if await controller.connect(device):
-                if await controller.enable_wifi():
-                    self.cameras[camera_id] = controller
-                    self.add_camera_config(camera_id, device, controller)
-                    print(f"[OK] {camera_name} paired successfully!")
-                else:
-                    print(f"[WARN] {camera_name} connected but WiFi failed")
-                    await controller.disconnect()
+                self.cameras[camera_id] = controller
+                print(f"[OK] {camera_name} paired successfully!")
             else:
                 print(f"X {camera_name} pairing failed")
         
@@ -210,7 +205,7 @@ class DualWiFiGoProManager:
         if not cameras_config:
             return False
         
-        print(f"\n🔄 Connecting to {len(cameras_config)} known cameras...")
+        print(f"\n[CONNECT] Connecting to {len(cameras_config)} known cameras...")
         
         # Discover available devices
         devices = await BleakScanner.discover(timeout=TIMEOUTS['bluetooth_connect'])
@@ -244,8 +239,130 @@ class DualWiFiGoProManager:
         print(f"[OK] Connected to {connected_count}/{len(cameras_config)} cameras")
         return connected_count > 0
     
+    async def auto_enable_all_wifi_and_connect(self) -> bool:
+        """NEW: Auto-enable WiFi and connect all cameras"""
+        if not self.cameras:
+            print("X No cameras available")
+            return False
+        
+        print(f"\n[AUTO] Auto-enabling WiFi and connecting {len(self.cameras)} cameras...")
+        
+        # Step 1: Enable WiFi on all cameras
+        print("[STEP 1] Enabling WiFi via Bluetooth...")
+        wifi_enabled_count = 0
+        
+        for camera_id, camera in self.cameras.items():
+            print(f"[ENABLE] {camera.camera_name}...")
+            
+            if await camera.enable_wifi():
+                print(f"[OK] WiFi enabled: {camera.wifi_ssid}")
+                
+                # Update config with WiFi credentials
+                if "cameras" in self.config and camera_id in self.config["cameras"]:
+                    self.config["cameras"][camera_id]["wifi_ssid"] = camera.wifi_ssid
+                    self.config["cameras"][camera_id]["wifi_password"] = camera.wifi_password
+                
+                wifi_enabled_count += 1
+            else:
+                print(f"X WiFi enable failed for {camera.camera_name}")
+        
+        if wifi_enabled_count == 0:
+            print("X No cameras had WiFi enabled")
+            return False
+        
+        self.save_config()
+        print(f"[RESULT] WiFi enabled on {wifi_enabled_count}/{len(self.cameras)} cameras")
+        
+        # Step 2: Wait for GoPros to start broadcasting
+        print("\n[STEP 2] Waiting for cameras to start broadcasting...")
+        await asyncio.sleep(8)
+        
+        # Step 3: Auto-connect to WiFi networks
+        print("[STEP 3] Auto-connecting to WiFi networks...")
+        wifi_connected_count = 0
+        
+        for camera_id, camera in self.cameras.items():
+            if camera.wifi_ssid and camera.wifi_password:
+                print(f"\n[CONNECT] {camera.camera_name} WiFi...")
+                
+                if self._setup_wifi_connection_auto(camera):
+                    wifi_connected_count += 1
+                    print(f"[OK] {camera.camera_name} WiFi connected")
+                else:
+                    print(f"X {camera.camera_name} WiFi failed")
+            else:
+                print(f"X No WiFi credentials for {camera.camera_name}")
+        
+        print(f"\n[FINAL] {wifi_connected_count}/{len(self.cameras)} cameras ready for WiFi control")
+        return wifi_connected_count > 0
+    
+    def _setup_wifi_connection_auto(self, camera: SingleGoProController) -> bool:
+        """Auto WiFi connection setup (no user interaction)"""
+        interface = camera.wifi_interface
+        
+        try:
+            # Step 1: Clean up existing connections
+            print(f"[CLEAN] Cleaning up {interface}...")
+            subprocess.run(f"sudo nmcli device set {interface} managed no", shell=True, capture_output=True)
+            subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True)
+            subprocess.run(f"sudo dhclient -r {interface}", shell=True, capture_output=True)
+            subprocess.run(f"sudo ip addr flush dev {interface}", shell=True)
+            subprocess.run(f"sudo ip route flush dev {interface}", shell=True)
+            subprocess.run(f"sudo rm -f /var/run/wpa_supplicant/*", shell=True)
+            time.sleep(2)
+            
+            # Step 2: Bring interface up
+            print(f"[WIFI] Bringing {interface} up...")
+            subprocess.run(f"sudo ip link set {interface} up", shell=True)
+            time.sleep(1)
+            
+            # Step 3: Create and start wpa_supplicant
+            if not self._start_wpa_supplicant(camera, interface):
+                return False
+            
+            # Step 4: Wait for WiFi connection
+            if not self._wait_for_wifi_connection_auto(camera, interface):
+                return False
+            
+            # Step 5: Setup IP addressing
+            if not self._setup_ip_addressing(interface):
+                return False
+            
+            # Step 6: Setup routing
+            if not self._setup_routing(interface):
+                return False
+            
+            # Step 7: Test connection and create controller
+            return self._test_and_create_controller(camera, interface)
+            
+        except Exception as e:
+            print(f"X Auto WiFi setup failed: {e}")
+            return False
+    
+    def _wait_for_wifi_connection_auto(self, camera: SingleGoProController, interface: str) -> bool:
+        """Auto WiFi connection wait (shorter timeout, less verbose)"""
+        print(f"[WAIT] Waiting for WiFi connection on {interface}...")
+        
+        for attempt in range(12):  # Shorter timeout for auto mode
+            time.sleep(1)
+            
+            try:
+                iwconfig_result = subprocess.run(f"iwconfig {interface}", shell=True, 
+                                               capture_output=True, text=True)
+                if camera.wifi_ssid in iwconfig_result.stdout:
+                    print(f"[OK] Connected to {camera.wifi_ssid}")
+                    return True
+                elif attempt % 4 == 0:
+                    print(f"   ... attempt {attempt + 1}/12")
+            except:
+                pass
+        
+        print(f"X Failed to connect to {camera.wifi_ssid}")
+        return False
+    
+    # Keep all the existing manual connection methods for compatibility
     def connect_to_wifi_interface(self, camera_id: str) -> bool:
-        """Connect to specific camera's WiFi using assigned interface with enhanced routing"""
+        """Manual connect to specific camera's WiFi (original method)"""
         if camera_id not in self.cameras:
             return False
         
@@ -267,7 +384,7 @@ class DualWiFiGoProManager:
             return False
     
     def _setup_wifi_connection(self, camera: SingleGoProController, interface: str) -> bool:
-        """Setup WiFi connection with proper routing"""
+        """Setup WiFi connection with proper routing (original method)"""
         # Step 1: Clean up existing connections
         print(f"[CLEAN] Cleaning up {interface}...")
         subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True)
@@ -326,7 +443,7 @@ network={{
         return True
     
     def _wait_for_wifi_connection(self, camera: SingleGoProController, interface: str) -> bool:
-        """Wait for WiFi connection to establish"""
+        """Wait for WiFi connection to establish (original method)"""
         print(f"[WAIT] Waiting for WiFi connection on {interface}...")
         
         for attempt in range(TIMEOUTS['wifi_connect']):
