@@ -166,6 +166,9 @@ Set the GoPro camera into pairing mode, when you use it the first
 time. Confirm the pairing in the confirmation window on the the 
 desktop of the raspberry pi.
 4) 
-Switch off the pairing mode on the GoOro camera and restart the 
+Switch off the pairing mode on the GoPro camera and restart the 
 python program. The program should be able to connect to the 
-camera via Bluetooth. 
+camera via Bluetooth.
+
+5) After the program has started and the GoPros are connected to 
+Bluetooth, select 91 (Enable WiFi on GoPro) and then 31 or 32.
