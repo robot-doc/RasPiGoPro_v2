@@ -42,26 +42,26 @@ class SingleGoProController:
                 self.device = device
                 self.connected = True
                 await self.discover_services()
-                logger.info(f"[OK] {self.camera_name} connected via Bluetooth")
+                logger.info(f"✅ {self.camera_name} connected via Bluetooth")
                 return True
             
             return False
         except Exception as e:
-            logger.error(f"X {self.camera_name} connection failed: {e}")
+            logger.error(f"❌ {self.camera_name} connection failed: {e}")
             return False
     
     async def discover_services(self):
         """Discover BLE services"""
         try:
             services = list(self.client.services)
-            logger.info(f"[CONFIG] {self.camera_name}: {len(services)} services discovered")
+            logger.info(f"📋 {self.camera_name}: {len(services)} services discovered")
         except Exception as e:
             logger.warning(f"Service discovery failed for {self.camera_name}: {e}")
     
     async def enable_wifi(self) -> bool:
         """Enable WiFi on this camera"""
         try:
-            logger.info(f"[WPA] Enabling WiFi on {self.camera_name}")
+            logger.info(f"📡 Enabling WiFi on {self.camera_name}")
             await self.client.write_gatt_char(self.wifi_power_char, bytes([0x01]))
             await asyncio.sleep(TIMEOUTS['wifi_enable_delay'])
             
@@ -82,7 +82,7 @@ class SingleGoProController:
             password_data = await self.client.read_gatt_char(self.wifi_password_char)
             self.wifi_password = password_data.decode('utf-8').rstrip('\x00')
             
-            logger.info(f"[WIFI] {self.camera_name} WiFi: {self.wifi_ssid} -> {self.wifi_interface}")
+            logger.info(f"📶 {self.camera_name} WiFi: {self.wifi_ssid} -> {self.wifi_interface}")
             return True
         except Exception as e:
             logger.error(f"Failed to read WiFi credentials for {self.camera_name}: {e}")
@@ -123,4 +123,4 @@ class SingleGoProController:
         if self.client and self.client.is_connected:
             await self.client.disconnect()
             self.connected = False
-            logger.info(f"[DISC] {self.camera_name} disconnected")
+            logger.info(f"🔌 {self.camera_name} disconnected")

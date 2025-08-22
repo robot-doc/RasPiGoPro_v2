@@ -49,7 +49,7 @@ def convert_file_to_ascii(filename):
     print(f"Converted {filename} to {filename}_ascii")
 
 # Convert your files:
-convert_file_to_ascii('dual_wifi_manager.py')
-# convert_file_to_ascii('main.py')
-# convert_file_to_ascii('wifi_camera_controller.py')
-# convert_file_to_ascii('single_gopro_controller.py')
+# convert_file_to_ascii('dual_wifi_manager.py')
+convert_file_to_ascii('main.py')
+convert_file_to_ascii('wifi_camera_controller.py')
+convert_file_to_ascii('single_gopro_controller.py')

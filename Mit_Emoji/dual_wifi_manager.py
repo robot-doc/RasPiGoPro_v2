@@ -50,7 +50,7 @@ class DualWiFiGoProManager:
         try:
             with open(self.config_file, 'w') as f:
                 json.dump(self.config, f, indent=2)
-            logger.info("[SAVE] Dual WiFi configuration saved")
+            logger.info("💾 Dual WiFi configuration saved")
         except Exception as e:
             logger.error(f"Config save error: {e}")
     
@@ -64,10 +64,10 @@ class DualWiFiGoProManager:
                                       capture_output=True, text=True)
                 if result.returncode == 0:
                     interfaces[interface] = "Available"
-                    logger.info(f"[OK] {interface} detected")
+                    logger.info(f"✅ {interface} detected")
                 else:
                     interfaces[interface] = "Not found"
-                    logger.warning(f"X {interface} not found")
+                    logger.warning(f"❌ {interface} not found")
             except:
                 interfaces[interface] = "Error"
         
@@ -75,14 +75,14 @@ class DualWiFiGoProManager:
     
     def show_config_status(self):
         """Show current configuration"""
-        print("\n[CONFIG] Dual WiFi GoPro Configuration:")
+        print("\n📋 Dual WiFi GoPro Configuration:")
         print("-" * 50)
         
         # Show interface status
         interfaces = self.check_wifi_interfaces()
         print("WiFi Interfaces:")
         for interface, status in interfaces.items():
-            icon = "[OK]" if status == "Available" else "X"
+            icon = "✅" if status == "Available" else "❌"
             print(f"  {icon} {interface}: {status}")
         
         print()
@@ -99,7 +99,7 @@ class DualWiFiGoProManager:
                 camera_config = cameras[camera_id]
                 name = camera_config.get('name', 'Unknown')
                 wifi = camera_config.get('wifi_ssid', 'None')
-                print(f"  [CAM] {name} → {interface} ({interface_status})")
+                print(f"  📱 {name} → {interface} ({interface_status})")
                 print(f"     WiFi: {wifi}")
             else:
                 print(f"  ⚪ {camera_id} → {interface} ({interface_status}) [Not configured]")
@@ -108,7 +108,7 @@ class DualWiFiGoProManager:
     
     def show_wifi_controller_debug(self):
         """Show current WiFi controller mappings for debugging"""
-        print("\n[CHECK] WiFi Controller Debug:")
+        print("\n🔍 WiFi Controller Debug:")
         print("-" * 40)
         
         print("Camera Controllers:")
@@ -151,12 +151,12 @@ class DualWiFiGoProManager:
     
     async def discover_and_pair_cameras(self) -> bool:
         """Discover and pair multiple GoPro cameras"""
-        print("\n[CHECK] Scanning for GoPro cameras...")
+        print("\n🔍 Scanning for GoPro cameras...")
         
         # Check interfaces first
         interfaces = self.check_wifi_interfaces()
         if interfaces.get("wlan1") != "Available":
-            print("[WARN] WARNING: wlan1 (USB WiFi adapter) not detected!")
+            print("⚠️ WARNING: wlan1 (USB WiFi adapter) not detected!")
             print("   Camera 2 will be assigned to wlan1 but may not work until USB adapter is connected.")
         
         devices = await BleakScanner.discover(timeout=TIMEOUTS['bluetooth_discover'])
@@ -166,10 +166,10 @@ class DualWiFiGoProManager:
         for device in devices:
             if device.name and any(name in device.name for name in GOPRO_DEVICE_PATTERNS):
                 gopro_devices.append(device)
-                logger.info(f"[CAM] Found: {device.name} ({device.address})")
+                logger.info(f"📱 Found: {device.name} ({device.address})")
         
         if not gopro_devices:
-            print("X No GoPro cameras found")
+            print("❌ No GoPro cameras found")
             return False
         
         # Pair each camera with interface assignment
@@ -187,7 +187,7 @@ class DualWiFiGoProManager:
                 assigned_interface = "wlan1"
                 camera_name = f"GoPro 2 ({device.name}) → wlan1"
             
-            print(f"\n[CONNECT] Pairing {camera_name}...")
+            print(f"\n🔗 Pairing {camera_name}...")
             
             controller = SingleGoProController(camera_id, camera_name, assigned_interface)
             
@@ -195,12 +195,12 @@ class DualWiFiGoProManager:
                 if await controller.enable_wifi():
                     self.cameras[camera_id] = controller
                     self.add_camera_config(camera_id, device, controller)
-                    print(f"[OK] {camera_name} paired successfully!")
+                    print(f"✅ {camera_name} paired successfully!")
                 else:
-                    print(f"[WARN] {camera_name} connected but WiFi failed")
+                    print(f"⚠️ {camera_name} connected but WiFi failed")
                     await controller.disconnect()
             else:
-                print(f"X {camera_name} pairing failed")
+                print(f"❌ {camera_name} pairing failed")
         
         return len(self.cameras) > 0
     
@@ -239,9 +239,9 @@ class DualWiFiGoProManager:
                         break
             
             if not connected:
-                print(f"[WARN] Could not connect to {camera_name}")
+                print(f"⚠️ Could not connect to {camera_name}")
         
-        print(f"[OK] Connected to {connected_count}/{len(cameras_config)} cameras")
+        print(f"✅ Connected to {connected_count}/{len(cameras_config)} cameras")
         return connected_count > 0
     
     def connect_to_wifi_interface(self, camera_id: str) -> bool:
@@ -251,12 +251,12 @@ class DualWiFiGoProManager:
         
         camera = self.cameras[camera_id]
         if not camera.wifi_ssid or not camera.wifi_password:
-            print("X No WiFi credentials available")
-            print("[HELP] Try enabling WiFi first with option 91 or individual camera WiFi enable")
+            print("❌ No WiFi credentials available")
+            print("💡 Try enabling WiFi first with option 91 or individual camera WiFi enable")
             return False
         
         interface = camera.wifi_interface
-        print(f"\n[CONNECT] Connecting {camera.camera_name} via {interface}")
+        print(f"\n🔗 Connecting {camera.camera_name} via {interface}")
         print(f"   Network: {camera.wifi_ssid}")
         print(f"   Camera ID: {camera_id}")
         
@@ -269,7 +269,7 @@ class DualWiFiGoProManager:
     def _setup_wifi_connection(self, camera: SingleGoProController, interface: str) -> bool:
         """Setup WiFi connection with proper routing"""
         # Step 1: Clean up existing connections
-        print(f"[CLEAN] Cleaning up {interface}...")
+        print(f"🧹 Cleaning up {interface}...")
         subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True)
         subprocess.run(f"sudo dhclient -r {interface}", shell=True, capture_output=True)
         subprocess.run(f"sudo ip addr flush dev {interface}", shell=True)
@@ -277,7 +277,7 @@ class DualWiFiGoProManager:
         time.sleep(2)
         
         # Step 2: Bring interface up
-        print(f"[WIFI] Bringing {interface} up...")
+        print(f"📶 Bringing {interface} up...")
         subprocess.run(f"sudo ip link set {interface} up", shell=True)
         time.sleep(1)
         
@@ -316,18 +316,18 @@ network={{
         with open(config_file, "w") as f:
             f.write(wpa_config)
         
-        print(f"[WPA] Starting wpa_supplicant on {interface}...")
+        print(f"📡 Starting wpa_supplicant on {interface}...")
         cmd = f"sudo wpa_supplicant -B -i {interface} -c {config_file} -D nl80211,wext"
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         
         if result.returncode != 0:
-            print(f"X wpa_supplicant failed on {interface}: {result.stderr}")
+            print(f"❌ wpa_supplicant failed on {interface}: {result.stderr}")
             return False
         return True
     
     def _wait_for_wifi_connection(self, camera: SingleGoProController, interface: str) -> bool:
         """Wait for WiFi connection to establish"""
-        print(f"[WAIT] Waiting for WiFi connection on {interface}...")
+        print(f"⏳ Waiting for WiFi connection on {interface}...")
         
         for attempt in range(TIMEOUTS['wifi_connect']):
             time.sleep(1)
@@ -336,30 +336,30 @@ network={{
                 iwconfig_result = subprocess.run(f"iwconfig {interface}", shell=True, 
                                                capture_output=True, text=True)
                 if camera.wifi_ssid in iwconfig_result.stdout:
-                    print(f"[OK] Connected to {camera.wifi_ssid}")
+                    print(f"✅ Connected to {camera.wifi_ssid}")
                     return True
                 elif attempt % 3 == 0:
                     print(f"   ... attempt {attempt + 1}/{TIMEOUTS['wifi_connect']}")
             except:
                 pass
         
-        print(f"X Failed to connect to {camera.wifi_ssid}")
+        print(f"❌ Failed to connect to {camera.wifi_ssid}")
         return False
     
     def _setup_ip_addressing(self, interface: str) -> bool:
         """Setup IP addressing for the interface"""
-        print(f"[DHCP] Trying DHCP on {interface}...")
+        print(f"🌐 Trying DHCP on {interface}...")
         
         try:
             dhcp_result = subprocess.run(f"sudo dhclient -v {interface}", shell=True, 
                                        capture_output=True, text=True, timeout=TIMEOUTS['dhcp'])
             dhcp_success = dhcp_result.returncode == 0
         except subprocess.TimeoutExpired:
-            print(f"[WARN] DHCP timed out on {interface}, trying static IP...")
+            print(f"⚠️ DHCP timed out on {interface}, trying static IP...")
             dhcp_success = False
         
         if not dhcp_success:
-            print(f"[SETUP] Setting up static IP on {interface}...")
+            print(f"🔧 Setting up static IP on {interface}...")
             static_ip = STATIC_IPS[interface]
             subprocess.run(f"sudo ip addr add {static_ip} dev {interface}", shell=True)
             time.sleep(1)
@@ -371,15 +371,15 @@ network={{
         for line in ip_result.stdout.split('\n'):
             if "inet " in line and "127.0.0.1" not in line and "169.254" not in line:
                 interface_ip = line.strip().split()[1].split('/')[0]
-                print(f"[OK] {interface} has IP: {interface_ip}")
+                print(f"✅ {interface} has IP: {interface_ip}")
                 return True
         
-        print(f"X No IP address assigned to {interface}")
+        print(f"❌ No IP address assigned to {interface}")
         return False
     
     def _setup_routing(self, interface: str) -> bool:
         """Setup routing for the interface"""
-        print(f"[ROUTE] Setting up enhanced routing for {GOPRO_IP} via {interface}...")
+        print(f"🛣️ Setting up enhanced routing for {GOPRO_IP} via {interface}...")
         
         # Remove existing routes
         subprocess.run(f"sudo ip route del {GOPRO_IP} 2>/dev/null", shell=True)
@@ -395,7 +395,7 @@ network={{
     
     def _test_and_create_controller(self, camera: SingleGoProController, interface: str) -> bool:
         """Test connection and create WiFi controller"""
-        print(f"[CHECK] Testing {camera.camera_name} with enhanced routing...")
+        print(f"🔍 Testing {camera.camera_name} with enhanced routing...")
         
         test_cmd = f"curl --interface {interface} --connect-timeout 5 --max-time 10 http://{GOPRO_IP}:8080/gp/gpControl/status"
         test_result = subprocess.run(test_cmd, shell=True, capture_output=True, text=True)
@@ -403,20 +403,20 @@ network={{
         if test_result.returncode == 0:
             wifi_ctrl = WiFiCameraController(camera.camera_name, interface, GOPRO_IP)
             self.wifi_controllers[camera.camera_id] = wifi_ctrl
-            print(f"[OK] {camera.camera_name} connected via {interface}")
+            print(f"✅ {camera.camera_name} connected via {interface}")
             print(f"   Stored in wifi_controllers['{camera.camera_id}']")
             return True
         else:
-            print(f"X {camera.camera_name} not responding")
+            print(f"❌ {camera.camera_name} not responding")
             return False
     
     def show_network_debug(self):
         """Show detailed network debugging information"""
-        print("\n[CHECK] Dual WiFi Network Debug:")
+        print("\n🔍 Dual WiFi Network Debug:")
         print("-" * 50)
         
         for interface in ["wlan0", "wlan1"]:
-            print(f"\n[WIFI] Interface: {interface}")
+            print(f"\n📶 Interface: {interface}")
             self._show_interface_debug(interface)
         
         print("\n" + "-" * 50)
@@ -428,13 +428,13 @@ network={{
             result = subprocess.run(f"ip link show {interface}", shell=True, 
                                   capture_output=True, text=True)
             if result.returncode == 0:
-                status = "[OK] UP" if "UP" in result.stdout else "X DOWN"
+                status = "✅ UP" if "UP" in result.stdout else "❌ DOWN"
                 print(f"   Status: {status}")
             else:
-                print(f"   Status: X NOT FOUND")
+                print(f"   Status: ❌ NOT FOUND")
                 return
         except:
-            print(f"   Status: X ERROR")
+            print(f"   Status: ❌ ERROR")
             return
         
         # IP Address
@@ -449,9 +449,9 @@ network={{
                     ip_found = True
                     break
             if not ip_found:
-                print(f"   IP: X No IP assigned")
+                print(f"   IP: ❌ No IP assigned")
         except:
-            print(f"   IP: X Error checking IP")
+            print(f"   IP: ❌ Error checking IP")
         
         # Connected network
         try:
@@ -464,9 +464,9 @@ network={{
                         print(f"   Network: {essid}")
                         break
             else:
-                print(f"   Network: X Not connected")
+                print(f"   Network: ❌ Not connected")
         except:
-            print(f"   Network: X Error checking")
+            print(f"   Network: ❌ Error checking")
     
     async def disconnect_all(self):
         """Disconnect all cameras"""

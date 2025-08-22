@@ -19,13 +19,13 @@ class GoProControllerUI:
     async def control_camera_bluetooth(self, camera_id: str):
         """Control individual camera via Bluetooth"""
         if camera_id not in self.manager.cameras:
-            print("X Camera not available")
+            print("❌ Camera not available")
             return
         
         camera = self.manager.cameras[camera_id]
                 
         while True:
-            print(f"\n[CTRL] {camera.camera_name} - Bluetooth Control")
+            print(f"\n🎮 {camera.camera_name} - Bluetooth Control")
             print("1. Take photo")
             print("2. Start recording")
             print("3. Stop recording")
@@ -36,50 +36,50 @@ class GoProControllerUI:
             
             if choice == '1':
                 if await camera.take_photo_bt():
-                    print("[PHOTO] Photo taken!")
+                    print("📸 Photo taken!")
                 else:
-                    print("X Failed")
+                    print("❌ Failed")
             
             elif choice == '2':
                 if await camera.start_recording_bt():
-                    print("[REC] Recording started!")
+                    print("🎬 Recording started!")
                 else:
-                    print("X Failed")
+                    print("❌ Failed")
             
             elif choice == '3':
                 if await camera.stop_recording_bt():
-                    print("[STOP] Recording stopped!")
+                    print("⏹️ Recording stopped!")
                 else:
-                    print("X Failed")
+                    print("❌ Failed")
             
             elif choice == '4':
                 if await camera.enable_wifi():
-                    print(f"[WIFI] WiFi enabled: {camera.wifi_ssid}")
+                    print(f"📶 WiFi enabled: {camera.wifi_ssid}")
                 else:
-                    print("X WiFi enable failed")
+                    print("❌ WiFi enable failed")
             
             elif choice == '0':
                 break
     
     def control_camera_wifi(self, camera_id: str):
         """Control individual camera via WiFi with enhanced debugging"""
-        print(f"\n[CTRL] WiFi Control Request for: {camera_id}")
+        print(f"\n🎮 WiFi Control Request for: {camera_id}")
         
         if camera_id not in self.manager.wifi_controllers:
-            print("X WiFi not connected to this camera")
-            print("[HELP] Use option 31 or 32 to connect WiFi first")
-            print(f"[CONFIG] Available WiFi controllers: {list(self.manager.wifi_controllers.keys())}")
+            print("❌ WiFi not connected to this camera")
+            print("💡 Use option 31 or 32 to connect WiFi first")
+            print(f"📋 Available WiFi controllers: {list(self.manager.wifi_controllers.keys())}")
             return
         
         camera = self.manager.cameras[camera_id]
         wifi_ctrl = self.manager.wifi_controllers[camera_id]
         
-        print(f"[OK] Found WiFi controller for {camera.camera_name}")
+        print(f"✅ Found WiFi controller for {camera.camera_name}")
         print(f"   Interface: {wifi_ctrl.wifi_interface}")
         print(f"   Interface IP: {wifi_ctrl.interface_ip}")
         
         while True:
-            print(f"\n[CTRL] {camera.camera_name} - WiFi Control")
+            print(f"\n🎮 {camera.camera_name} - WiFi Control")
             print(f"   (via {wifi_ctrl.wifi_interface} at {wifi_ctrl.interface_ip})")
             print("1. Take photo")
             print("2. Start recording")
@@ -91,45 +91,45 @@ class GoProControllerUI:
             choice = input("Choice: ").strip()
             
             if choice == '1':
-                print(f"\n[PHOTO] Taking photo on {camera.camera_name}...")
+                print(f"\n📸 Taking photo on {camera.camera_name}...")
                 if wifi_ctrl.take_photo():
-                    print("[OK] Photo command sent!")
+                    print("✅ Photo command sent!")
                 else:
-                    print("X Photo command failed")
+                    print("❌ Photo command failed")
             
             elif choice == '2':
-                print(f"\n[REC] Starting recording on {camera.camera_name}...")
+                print(f"\n🎬 Starting recording on {camera.camera_name}...")
                 if wifi_ctrl.start_recording():
-                    print("[OK] Recording started!")
+                    print("✅ Recording started!")
                 else:
-                    print("X Recording start failed")
+                    print("❌ Recording start failed")
             
             elif choice == '3':
-                print(f"\n[STOP] Stopping recording on {camera.camera_name}...")
+                print(f"\n⏹️ Stopping recording on {camera.camera_name}...")
                 if wifi_ctrl.stop_recording():
-                    print("[OK] Recording stopped!")
+                    print("✅ Recording stopped!")
                 else:
-                    print("X Recording stop failed")
+                    print("❌ Recording stop failed")
             
             elif choice == '4':
-                print(f"\n[STATUS] Getting status from {camera.camera_name}...")
+                print(f"\n📊 Getting status from {camera.camera_name}...")
                 status = wifi_ctrl.get_status()
                 if status:
                     battery = status.get('status', {}).get('70', 'Unknown')
                     recording = status.get('status', {}).get('8', 0)
                     mode = status.get('status', {}).get('43', 'Unknown')
                     print(f"🔋 Battery: {battery}%")
-                    print(f"[REC] Recording: {'Yes' if recording else 'No'}")
+                    print(f"🔴 Recording: {'Yes' if recording else 'No'}")
                     print(f"📷 Mode: {mode}")
                 else:
-                    print("X No status received")
+                    print("❌ No status received")
             
             elif choice == '5':
-                print(f"\n[CHECK] Testing connection to {camera.camera_name}...")
+                print(f"\n🔍 Testing connection to {camera.camera_name}...")
                 if wifi_ctrl.test_connection():
-                    print("[OK] Connection test passed!")
+                    print("✅ Connection test passed!")
                 else:
-                    print("X Connection test failed")
+                    print("❌ Connection test failed")
             
             elif choice == '0':
                 break
@@ -137,11 +137,11 @@ class GoProControllerUI:
     async def simultaneous_control(self):
         """Control multiple cameras simultaneously"""
         if len(self.manager.cameras) < 2:
-            print("X Need at least 2 cameras for simultaneous control")
+            print("❌ Need at least 2 cameras for simultaneous control")
             return
         
         while True:
-            print(f"\n[CTRL] Simultaneous Control - {len(self.manager.cameras)} Cameras")
+            print(f"\n🎮 Simultaneous Control - {len(self.manager.cameras)} Cameras")
             print("1. Take photos on ALL cameras")
             print("2. Start recording on ALL cameras")
             print("3. Stop recording on ALL cameras")
@@ -151,32 +151,32 @@ class GoProControllerUI:
             choice = input("Choice: ").strip()
             
             if choice == '1':
-                print("[PHOTO] Taking photos on all cameras...")
+                print("📸 Taking photos on all cameras...")
                 tasks = [camera.take_photo_bt() for camera in self.manager.cameras.values()]
                 results = await asyncio.gather(*tasks)
                 success_count = sum(results)
-                print(f"[OK] {success_count}/{len(self.manager.cameras)} photos taken")
+                print(f"✅ {success_count}/{len(self.manager.cameras)} photos taken")
             
             elif choice == '2':
-                print("[REC] Starting recording on all cameras...")
+                print("🎬 Starting recording on all cameras...")
                 tasks = [camera.start_recording_bt() for camera in self.manager.cameras.values()]
                 results = await asyncio.gather(*tasks)
                 success_count = sum(results)
-                print(f"[OK] {success_count}/{len(self.manager.cameras)} cameras recording")
+                print(f"✅ {success_count}/{len(self.manager.cameras)} cameras recording")
             
             elif choice == '3':
-                print("[STOP] Stopping recording on all cameras...")
+                print("⏹️ Stopping recording on all cameras...")
                 tasks = [camera.stop_recording_bt() for camera in self.manager.cameras.values()]
                 results = await asyncio.gather(*tasks)
                 success_count = sum(results)
-                print(f"[OK] {success_count}/{len(self.manager.cameras)} cameras stopped")
+                print(f"✅ {success_count}/{len(self.manager.cameras)} cameras stopped")
             
             elif choice == '4':
-                print("[WIFI] Enabling WiFi on all cameras...")
+                print("📶 Enabling WiFi on all cameras...")
                 tasks = [camera.enable_wifi() for camera in self.manager.cameras.values()]
                 results = await asyncio.gather(*tasks)
                 success_count = sum(results)
-                print(f"[OK] {success_count}/{len(self.manager.cameras)} WiFi enabled")
+                print(f"✅ {success_count}/{len(self.manager.cameras)} WiFi enabled")
             
             elif choice == '0':
                 break
@@ -185,13 +185,13 @@ class GoProControllerUI:
         """Display the main menu"""
         camera_list = list(self.manager.cameras.items())
         
-        print(f"\n[MENU] Main Menu - {len(self.manager.cameras)} Cameras Connected")
+        print(f"\n🎯 Main Menu - {len(self.manager.cameras)} Cameras Connected")
         print("-" * 60)
         
         # List available cameras with interface assignments
         for i, (camera_id, camera) in enumerate(camera_list, 1):
-            bt_status = "[CONNECT] BT" if camera.connected else "X"
-            wifi_status = "[WIFI] WiFi" if camera_id in self.manager.wifi_controllers else ""
+            bt_status = "🔗 BT" if camera.connected else "❌"
+            wifi_status = "📶 WiFi" if camera_id in self.manager.wifi_controllers else ""
             print(f"{i}. {camera.camera_name} {bt_status} {wifi_status} [{camera_id}]")
         
         print()
@@ -222,7 +222,7 @@ class GoProControllerUI:
             await self.simultaneous_control()
         
         elif choice == '91':
-            print("[WIFI] Enabling WiFi on all cameras...")
+            print("📶 Enabling WiFi on all cameras...")
             for camera in self.manager.cameras.values():
                 await camera.enable_wifi()
         
@@ -249,7 +249,7 @@ class GoProControllerUI:
                         camera_id, camera = camera_list[camera_index]
                         await self.control_camera_bluetooth(camera_id)
                     else:
-                        print(f"X Camera {camera_index + 1} not available")
+                        print(f"❌ Camera {camera_index + 1} not available")
                 
                 # WiFi control (21-29)
                 elif 21 <= choice_num <= 29:
@@ -258,7 +258,7 @@ class GoProControllerUI:
                         camera_id, camera = camera_list[camera_index]
                         self.control_camera_wifi(camera_id)
                     else:
-                        print(f"X Camera {camera_index + 1} not available")
+                        print(f"❌ Camera {camera_index + 1} not available")
                 
                 # WiFi connection (31-39)
                 elif 31 <= choice_num <= 39:
@@ -267,7 +267,7 @@ class GoProControllerUI:
                         camera_id, camera = camera_list[camera_index]
                         self.manager.connect_to_wifi_interface(camera_id)
                     else:
-                        print(f"X Camera {camera_index + 1} not available")
+                        print(f"❌ Camera {camera_index + 1} not available")
                 
                 else:
                     print("Invalid choice")
@@ -279,22 +279,22 @@ class GoProControllerUI:
     
     async def run(self):
         """Main application loop"""
-        print("[START] Dual WiFi Interface GoPro Controller")
-        print("[CAM] Camera 1 (GoPro 3811) → wlan0")
-        print("[CAM] Camera 2 (TBD) → wlan1")
+        print("🚀 Dual WiFi Interface GoPro Controller")
+        print("📱 Camera 1 (GoPro 3811) → wlan0")
+        print("📱 Camera 2 (TBD) → wlan1")
         print("=" * 50)
         
         self.manager.show_config_status()
         
         try:
             # Step 1: Connect to cameras
-            print("\n[WIFI] Step 1: Camera Connection")
+            print("\n📶 Step 1: Camera Connection")
             
             # Try known cameras first
             if not await self.manager.connect_known_cameras():
-                print("[CHECK] No known cameras found, starting discovery...")
+                print("🔍 No known cameras found, starting discovery...")
                 if not await self.manager.discover_and_pair_cameras():
-                    print("X No cameras available")
+                    print("❌ No cameras available")
                     return
             
             # Step 2: Main control loop
@@ -310,7 +310,7 @@ class GoProControllerUI:
         
         finally:
             await self.manager.disconnect_all()
-            print("\n[EXIT] All cameras disconnected!")
+            print("\n👋 All cameras disconnected!")
 
 async def main():
     """Main entry point"""
@@ -319,9 +319,9 @@ async def main():
 31
 
 if __name__ == "__main__":
-    print("[REC] Dual WiFi Interface GoPro Controller")
-    print("[CONFIG] Camera 1 → wlan0 (built-in WiFi)")
-    print("[CONFIG] Camera 2 → wlan1 (USB WiFi adapter)")
+    print("🎬 Dual WiFi Interface GoPro Controller")
+    print("📋 Camera 1 → wlan0 (built-in WiFi)")
+    print("📋 Camera 2 → wlan1 (USB WiFi adapter)")
     print("🔄 Automatic interface assignment and management")
     print()
     

@@ -25,7 +25,7 @@ class WiFiCameraController:
         # Store interface IP for debugging
         self.interface_ip = self._get_interface_ip()
         
-        print(f"[SETUP] WiFi Controller created for {camera_name}")
+        print(f"🔧 WiFi Controller created for {camera_name}")
         print(f"   Interface: {wifi_interface}")
         print(f"   Interface IP: {self.interface_ip}")
         print(f"   Target GoPro IP: {ip}")
@@ -44,7 +44,7 @@ class WiFiCameraController:
     
     def _make_request(self, url: str, action_description: str = "") -> bool:
         """Make HTTP request with interface-specific routing and debugging"""
-        print(f"[DHCP] {self.camera_name}: {action_description}")
+        print(f"🌐 {self.camera_name}: {action_description}")
         print(f"   URL: {url}")
         print(f"   Via interface: {self.wifi_interface} ({self.interface_ip})")
         
@@ -54,19 +54,19 @@ class WiFiCameraController:
             result = subprocess.run(curl_cmd, shell=True, capture_output=True, text=True)
             
             if result.returncode == 0:
-                print(f"   [OK] Success via {self.wifi_interface}")
+                print(f"   ✅ Success via {self.wifi_interface}")
                 return True
             else:
-                print(f"   X Failed via {self.wifi_interface}: {result.stderr}")
+                print(f"   ❌ Failed via {self.wifi_interface}: {result.stderr}")
                 return False
                 
         except Exception as e:
-            print(f"   X Exception: {e}")
+            print(f"   ❌ Exception: {e}")
             return False
     
     def _make_request_with_response(self, url: str, action_description: str = "") -> Optional[str]:
         """Make HTTP request and return response data"""
-        print(f"[STATUS] {self.camera_name}: {action_description}")
+        print(f"📊 {self.camera_name}: {action_description}")
         print(f"   Via interface: {self.wifi_interface}")
         
         try:
@@ -76,10 +76,10 @@ class WiFiCameraController:
             if result.returncode == 0:
                 return result.stdout
             else:
-                print(f"   X Request failed: {result.stderr}")
+                print(f"   ❌ Request failed: {result.stderr}")
                 return None
         except Exception as e:
-            print(f"   X Exception: {e}")
+            print(f"   ❌ Exception: {e}")
             return None
     
     def test_connection(self) -> bool:
@@ -94,7 +94,7 @@ class WiFiCameraController:
             try:
                 return json.loads(response)
             except json.JSONDecodeError as e:
-                print(f"   X JSON decode error: {e}")
+                print(f"   ❌ JSON decode error: {e}")
                 return {}
         return {}
     
