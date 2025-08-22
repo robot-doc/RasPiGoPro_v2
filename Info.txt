@@ -1,0 +1,171 @@
+Dual WiFi Interface GoPro Controller
+
+Modular Python application for controlling multiple GoPro cameras via Bluetooth and WiFi on separate network interfaces.
+File Structure
+
+gopro_controller/
+├── config.py                    # Configuration constants and settings
+├── single_gopro_controller.py   # Individual camera Bluetooth control
+├── wifi_camera_controller.py    # WiFi camera control via HTTP API
+├── dual_wifi_manager.py         # Main camera management logic
+├── main.py                      # Entry point and user interface
+└── README.md                    # This file
+
+Module Overview
+config.py
+
+    Contains all configuration constants
+    BLE characteristics, timeouts, IP assignments
+    Network routing metrics and static IPs
+    Easy to modify settings in one place
+
+single_gopro_controller.py
+
+    SingleGoProController class
+    Handles Bluetooth connection and commands
+    Camera discovery and WiFi credential reading
+    Photo/video control via BLE
+
+wifi_camera_controller.py
+
+    WiFiCameraController class
+    HTTP API control over WiFi
+    Interface-specific routing using curl
+    Detailed debugging for each request
+
+dual_wifi_manager.py
+
+    DualWiFiGoProManager class
+    Manages multiple cameras and interfaces
+    WiFi connection setup with routing
+    Configuration persistence and debugging
+
+main.py
+
+    GoProControllerUI class
+    User interface and menu system
+    Main application entry point
+    Menu handling and user interaction
+
+Installation
+
+    Install required packages:
+    bash
+
+    pip install bleak requests
+
+    Download all Python files to the same directory
+    Make main.py executable:
+    bash
+
+    chmod +x main.py
+
+Usage
+Run the application:
+bash
+
+python3 main.py
+
+Key Features:
+
+    Option 91: Enable WiFi on all cameras (do this first!)
+    Option 31: Connect Camera 1 WiFi (wlan0)
+    Option 32: Connect Camera 2 WiFi (wlan1)
+    Option 21: Control Camera 1 via WiFi
+    Option 22: Control Camera 2 via WiFi
+    Option 95: Debug WiFi controller mappings
+
+Typical Workflow:
+
+    Start application - cameras auto-connect via Bluetooth
+    Enable WiFi: Choice: 91
+    Connect WiFi interfaces: Choice: 31 then Choice: 32
+    Control cameras individually: Choice: 21 and Choice: 22
+    Use debug options if issues occur: Choice: 95
+
+Configuration
+Interface Assignments (config.py):
+python
+
+INTERFACE_ASSIGNMENTS = {
+    "camera_1": "wlan0",  # Built-in WiFi
+    "camera_2": "wlan1"   # USB WiFi adapter
+}
+
+Static IP Fallbacks:
+python
+
+STATIC_IPS = {
+    "wlan0": "10.5.5.100/24",  # Camera 1
+    "wlan1": "10.5.5.101/24"   # Camera 2
+}
+
+Troubleshooting
+Debug Tools:
+
+    Option 94: Network debug info
+    Option 95: WiFi controller debug
+    Check interface status and routing tables
+
+Common Issues:
+
+    DHCP timeouts: Uses static IP fallback automatically
+    Cross-camera control: Check routing with option 95
+    WiFi connection fails: Ensure cameras have WiFi enabled first
+
+Manual Network Checks:
+bash
+
+# Check interfaces
+ip link show wlan0
+ip link show wlan1
+
+# Check routing
+ip route show | grep 10.5.5
+
+# Test connectivity
+curl --interface wlan0 http://10.5.5.9:8080/gp/gpControl/status
+curl --interface wlan1 http://10.5.5.9:8080/gp/gpControl/status
+
+Development
+Adding New Features:
+
+    New camera commands: Add to SingleGoProController or WiFiCameraController
+    Configuration options: Add to config.py
+    Menu options: Add to main.py in the GoProControllerUI class
+    Network features: Add to dual_wifi_manager.py
+
+Code Organization Benefits:
+
+    Separation of concerns: Each module has a specific purpose
+    Easy testing: Individual modules can be tested separately
+    Maintainability: Changes isolated to relevant modules
+    Reusability: Modules can be imported by other applications
+
+Requirements
+
+    Python 3.7+
+    bleak (Bluetooth Low Energy)
+    requests (HTTP client)
+    Linux with sudo access (for network configuration)
+    Two WiFi interfaces (built-in + USB adapter)
+
+License
+
+This project is for educational and personal use.
+
+How to start from scratch:
+1) 
+Make a copy of the file ~/.gopro_config.json.
+Delete the content of the file ~/.gopro_config.json.
+2)
+Remove the Bluetooth connections in the connection mananger on the 
+desktop of the raspberry pi.
+3)
+Set the GoPro camera into pairing mode, when you use it the first 
+time. Confirm the pairing in the confirmation window on the the 
+desktop of the raspberry pi.
+4) 
+Switch off the pairing mode on the GoOro camera and restart the 
+python program. The program should be able to connect to the 
+camera via Bluetooth. 
