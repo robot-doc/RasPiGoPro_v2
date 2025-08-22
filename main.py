@@ -23,7 +23,7 @@ class GoProControllerUI:
             return
         
         camera = self.manager.cameras[camera_id]
-        
+                
         while True:
             print(f"\n🎮 {camera.camera_name} - Bluetooth Control")
             print("1. Take photo")
