@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Individual GoPro Camera Controller via Bluetooth
+Fixed version with robust disconnect error handling
 """
 
 import asyncio
@@ -95,7 +96,7 @@ class SingleGoProController:
                 return False
             
             await self.client.write_gatt_char(self.command_char, command_bytes)
-            logger.info(f"📤 {self.camera_name}: {description}")
+            logger.info(f"[CMD] {self.camera_name}: {description}")
             await asyncio.sleep(1)
             return True
         except Exception as e:
@@ -119,8 +120,36 @@ class SingleGoProController:
         return await self.send_command(bytes([0x02, 0x01, 0x00]), "Stop recording")
     
     async def disconnect(self):
-        """Disconnect Bluetooth"""
-        if self.client and self.client.is_connected:
-            await self.client.disconnect()
+        """Disconnect Bluetooth with robust error handling"""
+        if not self.client:
+            return
+        
+        try:
+            if self.client.is_connected:
+                logger.info(f"[DISC] Disconnecting {self.camera_name}...")
+                
+                # Set a timeout for disconnect to prevent hanging
+                await asyncio.wait_for(self.client.disconnect(), timeout=5.0)
+                logger.info(f"[OK] {self.camera_name} disconnected cleanly")
+            else:
+                logger.info(f"[INFO] {self.camera_name} already disconnected")
+                
+        except asyncio.TimeoutError:
+            logger.warning(f"[TIMEOUT] Disconnect timeout for {self.camera_name} - forcing disconnect")
             self.connected = False
-            logger.info(f"[DISC] {self.camera_name} disconnected")
+            self.client = None
+            
+        except EOFError:
+            logger.warning(f"[EOF] Connection already closed for {self.camera_name}")
+            self.connected = False
+            self.client = None
+            
+        except Exception as e:
+            logger.warning(f"[DISC] Disconnect error for {self.camera_name}: {e}")
+            # Force disconnect state even if error occurs
+            self.connected = False
+            self.client = None
+        
+        finally:
+            # Always ensure we're marked as disconnected
+            self.connected = False

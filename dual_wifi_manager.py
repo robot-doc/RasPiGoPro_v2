@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dual WiFi GoPro Manager - Modified for automatic WiFi connection
+Dual WiFi GoPro Manager - Modified for PARALLEL WiFi connections
 """
 
 import asyncio
@@ -8,7 +8,7 @@ import json
 import logging
 import subprocess
 import time
-from typing import Dict
+from typing import Dict, List, Tuple
 
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
@@ -23,7 +23,7 @@ from wifi_camera_controller import WiFiCameraController
 logger = logging.getLogger(__name__)
 
 class DualWiFiGoProManager:
-    """Manager for dual WiFi interface GoPro setup with auto-connection"""
+    """Manager for dual WiFi interface GoPro setup with PARALLEL auto-connection"""
     
     def __init__(self):
         self.config_file = CONFIG_FILE
@@ -240,32 +240,18 @@ class DualWiFiGoProManager:
         return connected_count > 0
     
     async def auto_enable_all_wifi_and_connect(self) -> bool:
-        """NEW: Auto-enable WiFi and connect all cameras"""
+        """ENHANCED: Auto-enable WiFi and connect all cameras with PARALLEL WiFi"""
         if not self.cameras:
             print("X No cameras available")
             return False
         
-        print(f"\n[AUTO] Auto-enabling WiFi and connecting {len(self.cameras)} cameras...")
+        print(f"\n[AUTO] PARALLEL Auto-enabling WiFi and connecting {len(self.cameras)} cameras...")
         
-        # Step 1: Enable WiFi on all cameras
-        print("[STEP 1] Enabling WiFi via Bluetooth...")
-        wifi_enabled_count = 0
+        # Step 1: Enable WiFi on all cameras (PARALLEL)
+        print("[STEP 1] Enabling WiFi via Bluetooth (PARALLEL)...")
+        wifi_enabled_results = await self._parallel_enable_wifi()
         
-        for camera_id, camera in self.cameras.items():
-            print(f"[ENABLE] {camera.camera_name}...")
-            
-            if await camera.enable_wifi():
-                print(f"[OK] WiFi enabled: {camera.wifi_ssid}")
-                
-                # Update config with WiFi credentials
-                if "cameras" in self.config and camera_id in self.config["cameras"]:
-                    self.config["cameras"][camera_id]["wifi_ssid"] = camera.wifi_ssid
-                    self.config["cameras"][camera_id]["wifi_password"] = camera.wifi_password
-                
-                wifi_enabled_count += 1
-            else:
-                print(f"X WiFi enable failed for {camera.camera_name}")
-        
+        wifi_enabled_count = sum(wifi_enabled_results.values())
         if wifi_enabled_count == 0:
             print("X No cameras had WiFi enabled")
             return False
@@ -275,92 +261,286 @@ class DualWiFiGoProManager:
         
         # Step 2: Wait for GoPros to start broadcasting
         print("\n[STEP 2] Waiting for cameras to start broadcasting...")
-        await asyncio.sleep(8)
+        await asyncio.sleep(6)  # Slightly shorter since we're more efficient
         
-        # Step 3: Auto-connect to WiFi networks
-        print("[STEP 3] Auto-connecting to WiFi networks...")
-        wifi_connected_count = 0
+        # Step 3: Auto-connect to WiFi networks (PARALLEL)
+        print("[STEP 3] Auto-connecting to WiFi networks (PARALLEL)...")
+        wifi_connected_results = await self._parallel_connect_wifi()
+        
+        wifi_connected_count = sum(wifi_connected_results.values())
+        print(f"\n[FINAL] {wifi_connected_count}/{len(self.cameras)} cameras ready for WiFi control")
+        print(f"[SPEED] Total time saved with parallel connections!")
+        
+        return wifi_connected_count > 0
+    
+    async def _parallel_enable_wifi(self) -> Dict[str, bool]:
+        """Enable WiFi on all cameras in parallel"""
+        
+        async def enable_wifi_single(camera_id: str, camera: SingleGoProController) -> Tuple[str, bool]:
+            """Enable WiFi for a single camera"""
+            print(f"[ENABLE] {camera.camera_name}...")
+            
+            try:
+                if await camera.enable_wifi():
+                    print(f"[OK] WiFi enabled: {camera.wifi_ssid}")
+                    
+                    # Update config with WiFi credentials
+                    if "cameras" in self.config and camera_id in self.config["cameras"]:
+                        self.config["cameras"][camera_id]["wifi_ssid"] = camera.wifi_ssid
+                        self.config["cameras"][camera_id]["wifi_password"] = camera.wifi_password
+                    
+                    return camera_id, True
+                else:
+                    print(f"X WiFi enable failed for {camera.camera_name}")
+                    return camera_id, False
+            except Exception as e:
+                print(f"X WiFi enable error for {camera.camera_name}: {e}")
+                return camera_id, False
+        
+        # Create tasks for all cameras
+        tasks = []
+        for camera_id, camera in self.cameras.items():
+            task = enable_wifi_single(camera_id, camera)
+            tasks.append(task)
+        
+        # Run all WiFi enable tasks in parallel
+        print(f"[PARALLEL] Starting {len(tasks)} WiFi enable tasks...")
+        start_time = time.time()
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        end_time = time.time()
+        print(f"[TIMING] WiFi enable completed in {end_time - start_time:.1f}s (parallel)")
+        
+        # Convert results to dictionary
+        result_dict = {}
+        for result in results:
+            if isinstance(result, tuple):
+                camera_id, success = result
+                result_dict[camera_id] = success
+            else:
+                print(f"[ERROR] Task failed with exception: {result}")
+        
+        return result_dict
+    
+    async def _parallel_connect_wifi(self) -> Dict[str, bool]:
+        """Connect to WiFi networks in parallel with clean progress display"""
+        
+        def connect_wifi_single(camera_id: str, camera: SingleGoProController) -> Tuple[str, bool]:
+            """Connect WiFi for a single camera (synchronous)"""
+            if not camera.wifi_ssid or not camera.wifi_password:
+                return camera_id, False
+            
+            # Show simple progress indicator
+            cam_num = "3811" if "3811" in camera.camera_name else "4511"
+            print(f"[CONNECT] GoPro {cam_num} -> {camera.wifi_interface}... ", end="", flush=True)
+            
+            try:
+                success = self._setup_wifi_connection_auto(camera)
+                if success:
+                    print("OK")
+                else:
+                    print("FAILED")
+                return camera_id, success
+            except Exception as e:
+                print(f"ERROR: {e}")
+                return camera_id, False
+        
+        # Create tasks for all cameras with WiFi credentials
+        loop = asyncio.get_event_loop()
+        tasks = []
         
         for camera_id, camera in self.cameras.items():
             if camera.wifi_ssid and camera.wifi_password:
-                print(f"\n[CONNECT] {camera.camera_name} WiFi...")
-                
-                if self._setup_wifi_connection_auto(camera):
-                    wifi_connected_count += 1
-                    print(f"[OK] {camera.camera_name} WiFi connected")
-                else:
-                    print(f"X {camera.camera_name} WiFi failed")
-            else:
-                print(f"X No WiFi credentials for {camera.camera_name}")
+                # Run in thread pool since WiFi setup is synchronous
+                task = loop.run_in_executor(None, connect_wifi_single, camera_id, camera)
+                tasks.append(task)
         
-        print(f"\n[FINAL] {wifi_connected_count}/{len(self.cameras)} cameras ready for WiFi control")
-        return wifi_connected_count > 0
+        if not tasks:
+            print("X No cameras with WiFi credentials")
+            return {}
+        
+        # Run all WiFi connection tasks in parallel
+        print(f"[PARALLEL] Connecting {len(tasks)} cameras to WiFi...")
+        start_time = time.time()
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        end_time = time.time()
+        print(f"[TIMING] WiFi connections completed in {end_time - start_time:.1f}s (parallel)")
+        
+        # Convert results to dictionary
+        result_dict = {}
+        for result in results:
+            if isinstance(result, tuple):
+                camera_id, success = result
+                result_dict[camera_id] = success
+            else:
+                print(f"[ERROR] WiFi task failed with exception: {result}")
+        
+        return result_dict
     
     def _setup_wifi_connection_auto(self, camera: SingleGoProController) -> bool:
-        """Auto WiFi connection setup (no user interaction)"""
+        """Auto WiFi connection setup (QUIET MODE for parallel execution)"""
         interface = camera.wifi_interface
         
         try:
-            # Step 1: Clean up existing connections
-            print(f"[CLEAN] Cleaning up {interface}...")
-            subprocess.run(f"sudo nmcli device set {interface} managed no", shell=True, capture_output=True)
-            subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True)
-            subprocess.run(f"sudo dhclient -r {interface}", shell=True, capture_output=True)
-            subprocess.run(f"sudo ip addr flush dev {interface}", shell=True)
-            subprocess.run(f"sudo ip route flush dev {interface}", shell=True)
-            subprocess.run(f"sudo rm -f /var/run/wpa_supplicant/*", shell=True)
-            time.sleep(2)
-            
-            # Step 2: Bring interface up
-            print(f"[WIFI] Bringing {interface} up...")
-            subprocess.run(f"sudo ip link set {interface} up", shell=True)
+            # Step 1: Clean up existing connections (SILENT)
+            subprocess.run(f"sudo nmcli device set {interface} managed no", shell=True, 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo dhclient -r {interface}", shell=True, 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo ip addr flush dev {interface}", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo ip route flush dev {interface}", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo rm -f /var/run/wpa_supplicant/*", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(1)
             
-            # Step 3: Create and start wpa_supplicant
-            if not self._start_wpa_supplicant(camera, interface):
+            # Step 2: Bring interface up (SILENT)
+            subprocess.run(f"sudo ip link set {interface} up", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5)
+            
+            # Step 3: Create and start wpa_supplicant (SILENT)
+            if not self._start_wpa_supplicant_quiet(camera, interface):
                 return False
             
-            # Step 4: Wait for WiFi connection
-            if not self._wait_for_wifi_connection_auto(camera, interface):
+            # Step 4: Wait for WiFi connection (SILENT)
+            if not self._wait_for_wifi_connection_quiet(camera, interface):
                 return False
             
-            # Step 5: Setup IP addressing
-            if not self._setup_ip_addressing(interface):
+            # Step 5: Setup IP addressing (SILENT)
+            if not self._setup_ip_addressing_quiet(interface):
                 return False
             
-            # Step 6: Setup routing
-            if not self._setup_routing(interface):
+            # Step 6: Setup routing (SILENT)
+            if not self._setup_routing_quiet(interface):
                 return False
             
-            # Step 7: Test connection and create controller
-            return self._test_and_create_controller(camera, interface)
+            # Step 7: Test connection and create controller (SILENT)
+            return self._test_and_create_controller_quiet(camera, interface)
             
         except Exception as e:
-            print(f"X Auto WiFi setup failed: {e}")
+            print(f"X Auto WiFi setup failed for {camera.camera_name}: {e}")
             return False
     
-    def _wait_for_wifi_connection_auto(self, camera: SingleGoProController, interface: str) -> bool:
-        """Auto WiFi connection wait (shorter timeout, less verbose)"""
-        print(f"[WAIT] Waiting for WiFi connection on {interface}...")
+    def _start_wpa_supplicant_quiet(self, camera: SingleGoProController, interface: str) -> bool:
+        """Start wpa_supplicant quietly"""
+        wpa_config = f'''ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+network={{
+    ssid="{camera.wifi_ssid}"
+    psk="{camera.wifi_password}"
+    key_mgmt=WPA-PSK
+    priority=1
+    scan_ssid=1
+}}'''
         
-        for attempt in range(12):  # Shorter timeout for auto mode
-            time.sleep(1)
+        config_file = f"/tmp/gopro_{interface}.conf"
+        with open(config_file, "w") as f:
+            f.write(wpa_config)
+        
+        cmd = f"sudo wpa_supplicant -B -i {interface} -c {config_file} -D nl80211,wext"
+        result = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        return result.returncode == 0
+    
+    def _wait_for_wifi_connection_quiet(self, camera: SingleGoProController, interface: str) -> bool:
+        """Wait for WiFi connection quietly"""
+        for attempt in range(10):
+            time.sleep(0.8)
             
             try:
                 iwconfig_result = subprocess.run(f"iwconfig {interface}", shell=True, 
-                                               capture_output=True, text=True)
-                if camera.wifi_ssid in iwconfig_result.stdout:
-                    print(f"[OK] Connected to {camera.wifi_ssid}")
-                    return True
-                elif attempt % 4 == 0:
-                    print(f"   ... attempt {attempt + 1}/12")
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if iwconfig_result.returncode == 0:
+                    # Check if actually connected by testing for network name
+                    check_result = subprocess.run(f"iwconfig {interface}", shell=True, 
+                                                capture_output=True, text=True)
+                    if camera.wifi_ssid in check_result.stdout and "Access Point:" in check_result.stdout:
+                        if "Not-Associated" not in check_result.stdout:
+                            return True
             except:
                 pass
         
-        print(f"X Failed to connect to {camera.wifi_ssid}")
         return False
     
-    # Keep all the existing manual connection methods for compatibility
+    def _setup_ip_addressing_quiet(self, interface: str) -> bool:
+        """Setup IP addressing quietly"""
+        # Try DHCP with short timeout
+        try:
+            dhcp_result = subprocess.run(f"sudo dhclient -v {interface}", shell=True, 
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+            dhcp_success = dhcp_result.returncode == 0
+        except subprocess.TimeoutExpired:
+            dhcp_success = False
+        
+        if not dhcp_success:
+            static_ip = STATIC_IPS[interface]
+            subprocess.run(f"sudo ip addr add {static_ip} dev {interface}", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5)
+        
+        # Verify IP assignment
+        ip_result = subprocess.run(f"ip addr show {interface}", shell=True, 
+                                 capture_output=True, text=True)
+        
+        for line in ip_result.stdout.split('\n'):
+            if "inet " in line and "127.0.0.1" not in line and "169.254" not in line:
+                return True
+        
+        return False
+    
+    def _setup_routing_quiet(self, interface: str) -> bool:
+        """Setup routing quietly"""
+        # Remove existing routes
+        subprocess.run(f"sudo ip route del {GOPRO_IP} 2>/dev/null", shell=True,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"sudo ip route del 10.5.5.0/24 2>/dev/null", shell=True,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Add new routes with metrics
+        metric = ROUTING_METRICS[interface]
+        subprocess.run(f"sudo ip route add {GOPRO_IP} dev {interface} metric {metric}", shell=True,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(f"sudo ip route add 10.5.5.0/24 dev {interface} metric {metric}", shell=True,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        time.sleep(1)
+        return True
+    
+    def _test_and_create_controller_quiet(self, camera: SingleGoProController, interface: str) -> bool:
+        """Test connection and create WiFi controller quietly"""
+        test_cmd = f"curl --interface {interface} --connect-timeout 5 --max-time 10 -s http://{GOPRO_IP}:8080/gp/gpControl/status"
+        test_result = subprocess.run(test_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        if test_result.returncode == 0:
+            # Create controller without verbose output by temporarily redirecting stdout
+            import sys
+            import io
+            
+            # Capture the verbose output from WiFiCameraController
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            
+            try:
+                wifi_ctrl = WiFiCameraController(camera.camera_name, interface, GOPRO_IP)
+                self.wifi_controllers[camera.camera_id] = wifi_ctrl
+                result = True
+            except Exception:
+                result = False
+            finally:
+                sys.stdout = old_stdout
+            
+            return result
+        else:
+            return False
+    
+    # Keep all existing methods for compatibility (manual connections, debugging, etc.)
     def connect_to_wifi_interface(self, camera_id: str) -> bool:
         """Manual connect to specific camera's WiFi (original method)"""
         if camera_id not in self.cameras:
@@ -586,6 +766,38 @@ network={{
             print(f"   Network: X Error checking")
     
     async def disconnect_all(self):
-        """Disconnect all cameras"""
-        for camera in self.cameras.values():
-            await camera.disconnect()
+        """Disconnect all cameras with robust error handling"""
+        print("[DISC] Disconnecting all cameras...")
+        
+        # Disconnect all cameras in parallel with individual error handling
+        async def safe_disconnect(camera):
+            try:
+                await camera.disconnect()
+                return True
+            except Exception as e:
+                logger.warning(f"[DISC] Error disconnecting {camera.camera_name}: {e}")
+                return False
+        
+        if self.cameras:
+            # Create disconnect tasks for all cameras
+            disconnect_tasks = [safe_disconnect(camera) for camera in self.cameras.values()]
+            
+            try:
+                # Run all disconnects in parallel with timeout
+                results = await asyncio.wait_for(
+                    asyncio.gather(*disconnect_tasks, return_exceptions=True), 
+                    timeout=10.0
+                )
+                
+                success_count = sum(1 for result in results if result is True)
+                print(f"[DISC] Successfully disconnected {success_count}/{len(self.cameras)} cameras")
+                
+            except asyncio.TimeoutError:
+                print("[DISC] Disconnect timeout - forcing cleanup")
+            except Exception as e:
+                print(f"[DISC] Disconnect error: {e}")
+        
+        # Clear all references
+        self.cameras.clear()
+        self.wifi_controllers.clear()
+        print("[DISC] Cleanup completed")

@@ -2,6 +2,10 @@
 """
 Main entry point for Dual WiFi Interface GoPro Controller
 Fixed with robust terminal handling and proper cursor management
+Die Videoaufnahme funktioniert, wenn die Kameras einzeln angesteuert werden
+Die Aufnahme von Fotos löst bei beiden Kameras Serienaufnahmen aus.
+Die unterschiedlich schnell bei den Kameras sind. Kann aber auch einen Einstellung
+der Kamera sein.
 """
 
 import asyncio
@@ -303,8 +307,6 @@ class GoProControllerUI:
         
         results = await asyncio.gather(*tasks)
         return sum(results)
-
-    async def simultaneous_control(self):
         """Control multiple cameras simultaneously"""
         if len(self.manager.cameras) < 2:
             self.print_clean("X Need at least 2 cameras for simultaneous control")
