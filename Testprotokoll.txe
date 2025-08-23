@@ -1,7 +1,0 @@
-Individual Control:
-11. Control GoPro 1 (GoPro 3811) → wlan0 (Bluetooth)        :   
-21. Control GoPro 1 (GoPro 3811) → wlan0 (WiFi)
-31. Connect GoPro 1 (GoPro 3811) → wlan0 WiFi
-12. Control GoPro 2 (GoPro 4511) → wlan1 (Bluetooth)
-22. Control GoPro 2 (GoPro 4511) → wlan1 (WiFi)
-32. Connect GoPro 2 (GoPro 4511) → wlan1 WiFi
