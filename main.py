@@ -12,8 +12,9 @@ import os
 import time
 import subprocess
 
+from config import SLEEP_MENU, SHOW_DEBUGGING_INFO
 from dual_wifi_manager import DualWiFiGoProManager
-import rtc_manager  # <--- NEW: RTC sync
+import rtc_manager
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,8 @@ class GoProControllerUI:
                     self.print_clean("[OK] Photo command sent!")
                 else:
                     self.print_clean("X Photo command failed")
-                self.get_input_clean("\nPress Enter to continue...")
+                if SHOW_DEBUGGING_INFO == "ON":
+                    self.get_input_clean("\nPress Enter to continue...")
             
             elif choice == '2':
                 self.print_clean(f"\n[REC] Starting recording on {camera.camera_name}...")
@@ -108,7 +110,8 @@ class GoProControllerUI:
                     self.print_clean("[OK] Recording started!")
                 else:
                     self.print_clean("X Recording start failed")
-                self.get_input_clean("\nPress Enter to continue...")
+                if SHOW_DEBUGGING_INFO == "ON":
+                    self.get_input_clean("\nPress Enter to continue...")
             
             elif choice == '3':
                 self.print_clean(f"\n[STOP] Stopping recording on {camera.camera_name}...")
@@ -116,7 +119,8 @@ class GoProControllerUI:
                     self.print_clean("[OK] Recording stopped!")
                 else:
                     self.print_clean("X Recording stop failed")
-                self.get_input_clean("\nPress Enter to continue...")
+                if SHOW_DEBUGGING_INFO == "ON":    
+                    self.get_input_clean("\nPress Enter to continue...")
             
             elif choice == '4':
                 self.print_clean(f"\n[STATUS] Getting status from {camera.camera_name}...")
@@ -331,29 +335,37 @@ class GoProControllerUI:
             if choice == '1':
                 self.print_clean("[PHOTO] Taking photos on all cameras...")
                 success_count = await self.take_photos_all_cameras()
-                self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} photos taken")
-                self.get_input_clean("\nPress Enter to continue...")
+                time.sleep(SLEEP_MENU)
+                if SHOW_DEBUGGING_INFO == "ON":
+                    self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} photos taken")
+                    self.get_input_clean("\nPress Enter to continue...")
             
             elif choice == '2':
                 self.print_clean("[REC] Starting recording on all cameras...")
                 success_count = await self.start_recording_all_cameras()
-                self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} cameras recording")
-                self.get_input_clean("\nPress Enter to continue...")
+                time.sleep(SLEEP_MENU)
+                if SHOW_DEBUGGING_INFO == "ON":
+                    self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} cameras recording")
+                    self.get_input_clean("\nPress Enter to continue...")
             
             elif choice == '3':
                 self.print_clean("[STOP] Stopping recording on all cameras...")
                 success_count = await self.stop_recording_all_cameras()
-                self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} cameras stopped")
-                self.get_input_clean("\nPress Enter to continue...")
+                time.sleep(SLEEP_MENU)
+                if SHOW_DEBUGGING_INFO == "ON":
+                    self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} cameras stopped")
+                    self.get_input_clean("\nPress Enter to continue...")
             
             elif choice == '4':
                 self.print_clean("[WIFI] Enabling WiFi on all cameras...")
                 tasks = [camera.enable_wifi() for camera in self.manager.cameras.values()]
                 results = await asyncio.gather(*tasks)
                 success_count = sum(results)
-                self.print_clean(f"[OK] {success_count}/{len(self.manager.cameras)} WiFi enabled")
-                self.get_input_clean("\nPress Enter to continue...")
-            
+                time.sleep(SLEEP_MENU)
+                if SHOW_DEBUGGING_INFO == "ON":
+                    self.print_clean(f"[OK] {success_count}/{len(self.manager.cameras)} WiFi enabled")
+                    self.get_input_clean("\nPress Enter to continue...")
+                
             elif choice == '0':
                 break
             else:
@@ -383,34 +395,24 @@ class GoProControllerUI:
                 self.print_clean(f"  {i}. GoPro {cam_num} [{bt_status}] [{wifi_status}] {interface}")
         else:
             self.print_clean("  No cameras connected")
+        self.print_clean("\n" + "-" * 60)
         
-        self.print_clean("")
-        self.print_clean("WiFi Control:")
-        self.print_clean("  21. Control Camera 1")
-        self.print_clean("  22. Control Camera 2")
-        self.print_clean("  31. Connect Camera 1 WiFi")
-        self.print_clean("  32. Connect Camera 2 WiFi")
+        # Two-column menu layout
+        menu_items = [
+            ("21. Control Camera 1",   "31. Connect Camera 1 WiFi"),
+            ("22. Control Camera 2",   "32. Connect Camera 2 WiFi"),
+            (""                    ,   ""                         ),
+            ("90. Simultaneous control","91. AUTO: WiFi setup"),
+            ("92. Add new camera",     "93. Show config"),
+            ("94. Network debug",      "95. WiFi debug"),
+            ("96. Manual WiFi enable", "0. Exit / 00. Force Exit")
+        ]
         
-        self.print_clean("")
-        self.print_clean("Multi-Camera:")
-        self.print_clean("  90. Simultaneous control")
-        self.print_clean("  91. AUTO: WiFi setup")
-        self.print_clean("  92. Add new camera")
+        self.print_clean("Main Menu:")
+        for left, right in menu_items:
+            self.print_clean(f"  {left:<30} {right}")
         
-        self.print_clean("")
-        self.print_clean("Debug & Config:")
-        self.print_clean("  93. Show config")
-        self.print_clean("  94. Network debug")
-        self.print_clean("  95. WiFi debug")
-        self.print_clean("  96. Manual WiFi enable")
-        self.print_clean("  97. Sync RTC now")  # <--- NEW option
-        
-        self.print_clean("")
-        self.print_clean("Exit:")
-        self.print_clean("  0. Exit")
-        self.print_clean("  00. Force Exit")
-        self.print_clean("")
-        self.print_clean("=" * 60)
+        self.print_clean("-" * 60)
     
     async def handle_menu_choice(self, choice: str):
         """Handle user menu choice"""
@@ -463,12 +465,6 @@ class GoProControllerUI:
             for camera in self.manager.cameras.values():
                 await camera.enable_wifi()
             self.get_input_clean("\nPress Enter to continue...")
-        
-        if choice == '97':  # <--- NEW
-            self.print_clean("[RTC] Manual sync starting...")
-            rtc_manager.sync_time()
-            self.get_input_clean("\nPress Enter to continue...")
-            return True
         
         else:
             try:
@@ -533,6 +529,7 @@ class GoProControllerUI:
         self.print_clean("[CONFIG] Camera 2 (TBD) -> wlan1")
         self.print_clean("")
 
+        42334233
         # NEW: Sync time with RTC/NTP at startup
         self.print_clean("[RTC] Synchronizing system time...")
         rtc_manager.sync_time()

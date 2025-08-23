@@ -1,5 +1,7 @@
 Dual WiFi Interface GoPro Controller
 
+To be able to run the program you will need sudo priviledges or the password.
+
 Modular Python application for controlling multiple GoPro cameras via Bluetooth and WiFi on separate network interfaces.
 File Structure
 

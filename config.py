@@ -54,3 +54,7 @@ GOPRO_DEVICE_PATTERNS = ["GoPro", "GP", "HERO", "Cam"]
 # HTTP timeouts
 HTTP_TIMEOUT = 8
 CURL_TIMEOUT = 10
+
+# Show debugging information
+SLEEP_MENU = 3.0
+SHOW_DEBUGGING_INFO = "OFF" 
