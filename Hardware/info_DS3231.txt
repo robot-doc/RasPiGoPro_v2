@@ -1,0 +1,187 @@
+DS3231 RTC Integration for Dual WiFi GoPro Controller
+Overview
+
+This module adds precise timekeeping capabilities to the GoPro Controller using the Adafruit PiRTC DS3231 Real Time Clock. The DS3231 provides:
+
+    Battery-backed timekeeping (continues running when Pi is powered off)
+    High accuracy (±2ppm from 0°C to +40°C)
+    Temperature sensor
+    Millisecond-precision timestamps for synchronized recordings
+
+Hardware Setup
+Required Hardware
+
+    Adafruit PiRTC - Precise DS3231 Real Time Clock
+    CR1220 coin cell battery (for RTC backup power)
+
+Wiring Connection
+
+Connect the DS3231 to your Raspberry Pi:
+
+DS3231 RTC    ->    Raspberry Pi
+VCC          ->    3.3V (Pin 1)
+GND          ->    GND (Pin 6)
+SDA          ->    SDA (Pin 3 / GPIO 2)
+SCL          ->    SCL (Pin 5 / GPIO 3)
+
+Installation
+Quick Setup
+
+Run the provided setup script:
+bash
+
+chmod +x setup_rtc.sh
+./setup_rtc.sh
+
+Manual Installation
+
+    Enable I2C interface:
+
+bash
+
+sudo raspi-config nonint do_i2c 0
+
+    Install system packages:
+
+bash
+
+sudo apt-get update
+sudo apt-get install -y i2c-tools python3-smbus ntpdate
+
+    Install Python packages:
+
+bash
+
+pip3 install smbus2
+pip3 install adafruit-circuitpython-ds3231
+
+    Verify RTC connection:
+
+bash
+
+sudo i2cdetect -y 1
+# You should see '68' at address 0x68
+
+Features
+Automatic Time Synchronization
+
+    On Startup: System time automatically syncs from RTC
+    Preserves Time: Maintains accurate time even after power loss
+    NTP Sync: Can sync with internet time servers when available
+
+Timestamp Generation
+
+    Recording Timestamps: Automatically adds precise timestamps to recordings
+    Millisecond Precision: Includes millisecond values for frame-accurate sync
+    Temperature Logging: Records ambient temperature with each recording
+
+Time Management (Menu Option 97)
+
+From the main menu, select option 97 to access RTC features:
+
+    Show detailed status - View RTC time, system time, drift, and temperature
+    Sync system from RTC - Set system time from battery-backed RTC
+    Set RTC from system - Update RTC with current system time
+    Sync RTC from NTP - Update RTC from internet time server
+    Continuous display - Real-time monitoring of time drift
+    Check temperature - Read current temperature from DS3231
+
+Usage Examples
+Recording with Timestamps
+
+When you start a recording (option 90 -> 2), the system will:
+
+    Get precise timestamp from RTC
+    Display: [TIMESTAMP] Recording started at: 20240315_143052_125
+    Log current temperature if enabled
+    Start synchronized recording on all cameras
+
+Time Synchronization Workflow
+
+Best practice for accurate timestamps:
+
+    Initial Setup: Sync RTC from NTP (option 97 -> 4)
+    Daily Use: System auto-syncs from RTC on startup
+    Periodic Sync: Update from NTP weekly when internet available
+
+Temperature Monitoring
+
+The DS3231 includes a temperature sensor (±3°C accuracy):
+
+    Automatically logged with recordings
+    Viewable in RTC status
+    Useful for environmental monitoring
+
+Configuration
+
+Edit config.py to customize RTC behavior:
+python
+
+RTC_CONFIG = {
+    'enabled': True,                    # Enable/disable RTC
+    'sync_on_startup': True,            # Auto-sync on startup
+    'temperature_logging': True,        # Log temperature
+    'timestamp_format': "%Y%m%d_%H%M%S" # Timestamp format
+}
+
+RECORDING_CONFIG = {
+    'timestamp_files': True,     # Add timestamps to files
+    'log_temperature': True,      # Include temperature in logs
+    'sync_before_recording': True # Verify sync before recording
+}
+
+Troubleshooting
+RTC Not Detected
+bash
+
+# Check I2C is enabled
+sudo raspi-config
+# Navigate to: Interface Options -> I2C -> Enable
+
+# Verify wiring
+sudo i2cdetect -y 1
+# Should show '68' at address 0x68
+
+Time Drift Issues
+
+    Replace battery if drift exceeds 10 seconds/day
+    Ensure good thermal contact (avoid direct sunlight)
+    Sync with NTP regularly when internet available
+
+Installation Errors
+bash
+
+# If smbus2 fails to install
+sudo apt-get install python3-dev
+
+# If Adafruit library fails
+pip3 install --upgrade adafruit-python-shell
+
+Benefits for Multi-Camera Setup
+
+    Synchronized Timestamps: All cameras record with the same time reference
+    Power Loss Recovery: Time maintained even after unexpected shutdown
+    Offline Operation: No internet needed for accurate timekeeping
+    Precision Logging: Millisecond timestamps for post-production sync
+    Environmental Data: Temperature logging for outdoor recordings
+
+Technical Details
+
+    RTC Chip: DS3231 (I2C address 0x68)
+    Accuracy: ±2ppm (0.17 seconds/day)
+    Temperature: -40°C to +85°C operation
+    Battery Life: 5+ years with CR1220
+    Communication: I2C bus (400kHz max)
+
+Integration with Existing Code
+
+The RTC module integrates seamlessly:
+
+    No changes required to existing camera control code
+    Automatic timestamp enhancement for recordings
+    Optional temperature logging
+    Graceful fallback if RTC unavailable
+
+Note
+
+The RTC module operates independently of the scheduling features. All recordings are started manually with enhanced timestamp precision from the RTC.

@@ -13,6 +13,7 @@ import time
 import subprocess
 
 from dual_wifi_manager import DualWiFiGoProManager
+import rtc_manager  # <--- NEW: RTC sync
 
 logger = logging.getLogger(__name__)
 
@@ -402,6 +403,7 @@ class GoProControllerUI:
         self.print_clean("  94. Network debug")
         self.print_clean("  95. WiFi debug")
         self.print_clean("  96. Manual WiFi enable")
+        self.print_clean("  97. Sync RTC now")  # <--- NEW option
         
         self.print_clean("")
         self.print_clean("Exit:")
@@ -461,6 +463,12 @@ class GoProControllerUI:
             for camera in self.manager.cameras.values():
                 await camera.enable_wifi()
             self.get_input_clean("\nPress Enter to continue...")
+        
+        if choice == '97':  # <--- NEW
+            self.print_clean("[RTC] Manual sync starting...")
+            rtc_manager.sync_time()
+            self.get_input_clean("\nPress Enter to continue...")
+            return True
         
         else:
             try:
@@ -524,6 +532,10 @@ class GoProControllerUI:
         self.print_clean("[CONFIG] Camera 1 (GoPro 3811) -> wlan0")
         self.print_clean("[CONFIG] Camera 2 (TBD) -> wlan1")
         self.print_clean("")
+
+        # NEW: Sync time with RTC/NTP at startup
+        self.print_clean("[RTC] Synchronizing system time...")
+        rtc_manager.sync_time()
         
         self.manager.show_config_status()
         
