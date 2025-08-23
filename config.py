@@ -58,3 +58,15 @@ CURL_TIMEOUT = 10
 # Show debugging information
 SLEEP_MENU = 3.0
 SHOW_DEBUGGING_INFO = "OFF" 
+
+# I2C / PCF8574 configuration
+I2C_BUS = 1
+# You said both modules are at 0x20 hex; if that’s truly two separate modules on the same bus,
+# they must have different A0/A1/A2 wiring. You can list multiple addresses here.
+PCF8574_ADDRESSES = [0x38]   # add 0x21, 0x22, ... if you have more
+PCF8574_POLL_INTERVAL = 0.5  # seconds for live view refresh
+
+
+# Hardware triggered recording
+TRIGGER_INPUT = 7
+RECORDING_TIME = 5.0

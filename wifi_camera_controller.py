@@ -123,3 +123,11 @@ class WiFiCameraController:
     def stop_recording(self) -> bool:
         """Stop recording with explicit interface routing"""
         return self._make_request(f"{self.base_url}/gp/gpControl/command/shutter?p=0", "Stopping recording")
+
+    def delete_all_media(self) -> bool:
+        """
+        Delete ALL media on the camera's SD card over Wi‑Fi.
+        Uses OpenGoPro endpoint: /gp/gpControl/command/storage/delete/all
+        """
+        url = f"{self.base_url}/gp/gpControl/command/storage/delete/all"
+        return self._make_request(url, "Deleting ALL media on camera")

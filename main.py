@@ -12,9 +12,12 @@ import os
 import time
 import subprocess
 
-from config import SLEEP_MENU, SHOW_DEBUGGING_INFO
+from config import (SLEEP_MENU, SHOW_DEBUGGING_INFO, 
+                    I2C_BUS, PCF8574_ADDRESSES, PCF8574_POLL_INTERVAL,
+                    TRIGGER_INPUT, RECORDING_TIME)
 from dual_wifi_manager import DualWiFiGoProManager
 import rtc_manager
+from pcf8574_manager import PCF8574Manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,13 @@ class GoProControllerUI:
     def __init__(self):
         self.manager = DualWiFiGoProManager()
         self.shutdown_requested = False
-    
+        try:
+            self.io_manager = PCF8574Manager(I2C_BUS, PCF8574_ADDRESSES)
+        except Exception:
+            self.io_manager = None
+        # Persisted trigger mode
+        self.trigger_mode = self.manager.config.get('trigger_mode', 'manual')
+
     def reset_terminal(self):
         """Completely reset terminal state"""
         try:
@@ -150,6 +159,18 @@ class GoProControllerUI:
                 self.print_clean("Invalid choice. Please try again.")
                 time.sleep(1)
     
+    def _save_trigger_mode(self):
+        """Persist trigger mode in the shared config file."""
+        try:
+            self.manager.config['trigger_mode'] = self.trigger_mode
+            self.manager.save_config()
+        except Exception:
+            pass  # Don't crash the UI if saving fails
+
+    def _trigger_mode_label(self) -> str:
+        return "Manual" if self.trigger_mode == "manual" else f"I2C (P{TRIGGER_INPUT})"
+
+
     async def start_recording_all_cameras(self):
         """Start recording on ALL cameras SIMULTANEOUSLY via WiFi - MILLISECOND PRECISION"""
         if not self.manager.wifi_controllers:
@@ -198,6 +219,37 @@ class GoProControllerUI:
         results = await asyncio.gather(*tasks)
         return sum(results)
 
+    async def timed_recording_all_cameras(self):
+        """Start both cameras, record for configured time, then stop."""
+        if not self.manager.wifi_controllers:
+            self.print_clean("[ERROR] No WiFi controllers available! Use option 91 first.")
+            self.get_input_clean("\nPress Enter to continue...")
+            return
+
+        self.print_clean(f"[ARMED] Timed recording armed ({RECORDING_TIME:.1f}s). Trigger mode: {self._trigger_mode_label()}")
+
+        # 1) Wait for trigger
+        if self.trigger_mode == "manual":
+            self.get_input_clean("\nPress Enter to TRIGGER...")
+        else:
+            await self._wait_for_i2c_trigger()
+
+        # 2) Start recording on all cameras
+        started = await self.start_recording_all_cameras()
+        if started == 0:
+            self.print_clean("[FAIL] No cameras started recording.")
+            self.get_input_clean("\nPress Enter to continue...")
+            return
+
+        self.print_clean(f"[RUNNING] Recording for {RECORDING_TIME:.1f}s...")
+        await asyncio.sleep(RECORDING_TIME)
+
+        # 3) Stop all cameras
+        stopped = await self.stop_recording_all_cameras()
+        self.print_clean(f"[DONE] Stopped {stopped} cameras.")
+        self.get_input_clean("\nPress Enter to continue...")
+
+    
     async def async_curl_request(self, url: str, interface: str) -> bool:
         """Make async HTTP request using asyncio subprocess for true parallelism"""
         try:
@@ -309,6 +361,41 @@ class GoProControllerUI:
         results = await asyncio.gather(*tasks)
         return sum(results)
 
+    async def _wait_for_i2c_trigger(self):
+        """Wait for PCF8574 pin TRIGGER_INPUT to go LOW (active)."""
+        if self.io_manager is None:
+            self.print_clean("[IO] PCF8574 not available; falling back to manual trigger.")
+            self.get_input_clean("\nPress Enter to TRIGGER...")
+            return
+
+        self.print_clean(f"\n[WAIT] Waiting for I2C trigger on P{TRIGGER_INPUT} (active LOW)...")
+        last = None
+        stable_low = 0
+        required_stable = 2  # two consecutive reads
+
+        while True:
+            snapshot = self.io_manager.snapshot()
+            # For simplicity, read the first device in your list
+            pins = None
+            for _, pins in snapshot.items():
+                break  # first device
+            if pins is None:
+                await asyncio.sleep(PCF8574_POLL_INTERVAL)
+                continue
+
+            level = pins.get(TRIGGER_INPUT, 1)  # default HIGH if missing
+            # Looking for LOW (0)
+            if level == 0:
+                stable_low += 1
+                if stable_low >= required_stable:
+                    self.print_clean("[TRIGGER] I2C input asserted.")
+                    return
+            else:
+                stable_low = 0
+
+            await asyncio.sleep(PCF8574_POLL_INTERVAL)
+
+    
     async def simultaneous_control(self):
         """Control multiple cameras simultaneously"""
         if len(self.manager.cameras) < 2:
@@ -324,11 +411,14 @@ class GoProControllerUI:
             self.print_clean("=" * 60)
             self.print_clean("")
             self.print_clean("1. Take photos on ALL cameras")
-            self.print_clean("2. Start recording on ALL cameras")
+            self.print_clean("2. Timed recording on ALL cameras (uses selected trigger)")
             self.print_clean("3. Stop recording on ALL cameras")
             self.print_clean("4. Enable WiFi on ALL cameras")
+            self.print_clean(f"5. Trigger mode: {self._trigger_mode_label()}")
+            self.print_clean("6. Delete ALL media on ONE camera")
             self.print_clean("0. Back to main menu")
             self.print_clean("")
+
             
             choice = self.get_input_clean("Choice: ")
             
@@ -340,14 +430,18 @@ class GoProControllerUI:
                     self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} photos taken")
                     self.get_input_clean("\nPress Enter to continue...")
             
-            elif choice == '2':
-                self.print_clean("[REC] Starting recording on all cameras...")
-                success_count = await self.start_recording_all_cameras()
-                time.sleep(SLEEP_MENU)
-                if SHOW_DEBUGGING_INFO == "ON":
-                    self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} cameras recording")
-                    self.get_input_clean("\nPress Enter to continue...")
+            #elif choice == '2':
+                #self.print_clean("[REC] Starting recording on all cameras...")
+                #success_count = await self.start_recording_all_cameras()
+                #time.sleep(SLEEP_MENU)
+                #if SHOW_DEBUGGING_INFO == "ON":
+                    #self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} cameras recording")
+                    #self.get_input_clean("\nPress Enter to continue...")
             
+            elif choice == '2':
+                await self.timed_recording_all_cameras()
+
+
             elif choice == '3':
                 self.print_clean("[STOP] Stopping recording on all cameras...")
                 success_count = await self.stop_recording_all_cameras()
@@ -365,6 +459,70 @@ class GoProControllerUI:
                 if SHOW_DEBUGGING_INFO == "ON":
                     self.print_clean(f"[OK] {success_count}/{len(self.manager.cameras)} WiFi enabled")
                     self.get_input_clean("\nPress Enter to continue...")
+
+            elif choice == '5':
+                # Toggle between manual and i2c, persist to config
+                self.trigger_mode = "i2c" if self.trigger_mode == "manual" else "manual"
+                self._save_trigger_mode()
+                self.print_clean(f"[MODE] Trigger mode set to: {self._trigger_mode_label()}")
+                time.sleep(1)
+
+            elif choice == '6':
+                # Choose which camera to wipe
+                self.reset_terminal()
+                self.print_clean("=" * 60)
+                self.print_clean("    DELETE ALL MEDIA (Single Camera)")
+                self.print_clean("=" * 60)
+                if not self.manager.wifi_controllers:
+                    self.print_clean("\n[ERROR] No WiFi controllers available. Use 91 to connect first.")
+                    self.get_input_clean("\nPress Enter to continue...")
+                    continue
+
+                # Build a stable, numbered list based on the main camera list order
+                camera_list = list(self.manager.cameras.items())
+                self.print_clean("\nSelect camera to erase:")
+                choices = []
+                for idx, (cam_id, cam) in enumerate(camera_list, start=1):
+                    wifi_ok = "WIFI" if cam_id in self.manager.wifi_controllers else "X"
+                    self.print_clean(f"  {idx}. {cam.camera_name} [{wifi_ok}]")
+                    choices.append((idx, cam_id, cam))
+
+                sel = self.get_input_clean("\nCamera number (or 0 to cancel): ")
+                try:
+                    n = int(sel)
+                except ValueError:
+                    self.print_clean("Invalid input.")
+                    time.sleep(1)
+                    continue
+                if n == 0:
+                    continue
+                if not (1 <= n <= len(choices)):
+                    self.print_clean("Invalid selection.")
+                    time.sleep(1)
+                    continue
+
+                _, cam_id, cam = choices[n-1]
+                if cam_id not in self.manager.wifi_controllers:
+                    self.print_clean("\n[ERROR] Selected camera is not connected over Wi‑Fi.")
+                    self.get_input_clean("\nPress Enter to continue...")
+                    continue
+
+                # Safety confirmation
+                self.print_clean(f"\n!!! WARNING !!! This will ERASE ALL media on {cam.camera_name}.")
+                confirm = self.get_input_clean("Type 'ERASE' to proceed, or anything else to cancel: ")
+                if confirm != "ERASE":
+                    self.print_clean("Cancelled.")
+                    time.sleep(1)
+                    continue
+
+                wifi_ctrl = self.manager.wifi_controllers[cam_id]
+                self.print_clean(f"\n[DELETE] Sending erase command to {cam.camera_name}...")
+                ok = wifi_ctrl.delete_all_media()
+                if ok:
+                    self.print_clean("[OK] Camera acknowledged delete‑all request.")
+                else:
+                    self.print_clean("X Delete‑all request failed (check Wi‑Fi connection).")
+                self.get_input_clean("\nPress Enter to continue...")
                 
             elif choice == '0':
                 break
@@ -379,10 +537,7 @@ class GoProControllerUI:
         camera_list = list(self.manager.cameras.items())
         
         # Build menu step by step with explicit flushes
-        self.print_clean("=" * 60)
         self.print_clean("    DUAL WIFI GOPRO CONTROLLER")
-        self.print_clean("=" * 60)
-        self.print_clean("")
         
         # Show camera status
         self.print_clean("Connected Cameras:")
@@ -395,13 +550,12 @@ class GoProControllerUI:
                 self.print_clean(f"  {i}. GoPro {cam_num} [{bt_status}] [{wifi_status}] {interface}")
         else:
             self.print_clean("  No cameras connected")
-        self.print_clean("\n" + "-" * 60)
         
         # Two-column menu layout
         menu_items = [
             ("21. Control Camera 1",   "31. Connect Camera 1 WiFi"),
             ("22. Control Camera 2",   "32. Connect Camera 2 WiFi"),
-            (""                    ,   ""                         ),
+            ("80. I/O (PCF8574) status",""                        ),
             ("90. Simultaneous control","91. AUTO: WiFi setup"),
             ("92. Add new camera",     "93. Show config"),
             ("94. Network debug",      "95. WiFi debug"),
@@ -414,6 +568,82 @@ class GoProControllerUI:
         
         self.print_clean("-" * 60)
     
+    def show_pcf8574_menu(self):
+        """Submenu to view PCF8574 input status."""
+        if self.io_manager is None:
+            self.print_clean("\n[IO] PCF8574 manager not available (missing smbus2 or init error).")
+            self.get_input_clean("\nPress Enter to continue...")
+            return
+
+        while True:
+            self.reset_terminal()
+            self.print_clean("=" * 60)
+            self.print_clean("    PCF8574 INPUT STATUS")
+            self.print_clean("=" * 60)
+            self.print_clean("")
+            self.print_clean("1. Snapshot (read once)")
+            self.print_clean("2. Live view (press 'q' + Enter to exit)")
+            self.print_clean("0. Back to main menu")
+            self.print_clean("")
+
+            choice = self.get_input_clean("Choice: ")
+
+            if choice == '1':
+                self.reset_terminal()
+                self.print_clean("PCF8574 Snapshot:\n")
+                data = self.io_manager.snapshot()
+                for dev_name, pins in data.items():
+                    if pins is None:
+                        self.print_clean(f"{dev_name}: X read failed")
+                    else:
+                        # Render pins 7..0 to match typical labeling
+                        bits = "".join(str(pins[p]) for p in reversed(range(8)))
+                        self.print_clean(f"{dev_name}: {bits}  (bit7..bit0)")
+                        #self.print_clean("           " + " ".join(f"P{p}:{pins[p]}" for p in range(8)))
+                self.get_input_clean("\nPress Enter to continue...")
+
+            elif choice == '2':
+                # One-time screen setup
+                self.reset_terminal()
+                print("\033[?25l", end="")  # hide cursor
+                try:
+                    while True:
+                        data = self.io_manager.snapshot()
+
+                        # Move cursor to top-left and clear only the area we rewrite
+                        # (home + clear-to-end-of-screen)
+                        sys.stdout.write("\033[H\033[J")
+                        sys.stdout.flush()
+
+                        self.print_clean("PCF8574 Live View (type 'q' + Enter to stop)\n")
+
+                        for dev_name, pins in data.items():
+                            if pins is None:
+                                self.print_clean(f"{dev_name}: X read failed")
+                            else:
+                                bits = "".join(str(pins[p]) for p in reversed(range(8)))
+                                self.print_clean(f"{dev_name}: {bits}  (bit7..bit0)")
+                                #self.print_clean("           " + " ".join(f"P{p}:{pins[p]}" for p in range(8)))
+
+                        # Timed, quiet check for 'q' without printing extra lines every loop
+                        import select
+                        rlist, _, _ = select.select([sys.stdin], [], [], PCF8574_POLL_INTERVAL)
+                        if rlist:
+                            cmd = sys.stdin.readline().strip().lower()
+                            if cmd == 'q':
+                                break
+                finally:
+                    # Restore cursor visibility
+                    print("\033[?25h", end="")
+                    sys.stdout.flush()
+
+            elif choice == '0':
+                break
+            else:
+                self.print_clean("Invalid choice. Please try again.")
+                time.sleep(1)
+    
+
     async def handle_menu_choice(self, choice: str):
         """Handle user menu choice"""
         camera_list = list(self.manager.cameras.items())
@@ -426,6 +656,9 @@ class GoProControllerUI:
             self.shutdown_requested = True
             return False
         
+        elif choice == '80':
+            self.show_pcf8574_menu()
+
         elif choice == '90':
             await self.simultaneous_control()
         
@@ -501,7 +734,7 @@ class GoProControllerUI:
                 time.sleep(1)
         
         return True  # Continue running
-    
+        
     async def graceful_shutdown(self):
         """Perform graceful shutdown"""
         if self.shutdown_requested:
@@ -529,7 +762,6 @@ class GoProControllerUI:
         self.print_clean("[CONFIG] Camera 2 (TBD) -> wlan1")
         self.print_clean("")
 
-        42334233
         # NEW: Sync time with RTC/NTP at startup
         self.print_clean("[RTC] Synchronizing system time...")
         rtc_manager.sync_time()
