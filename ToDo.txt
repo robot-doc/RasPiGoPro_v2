@@ -1,4 +1,2 @@
 1) Start Aufnahme
-    Die Aufnahmen sollen über den Eingang 0 der angeschlossenen I2C Karte gestartet werden.
-    Wenn die Aufnahme über diesen Eingang gestartet wird, dann soll die Aufnahme nach einer
     

@@ -15,7 +15,9 @@ import subprocess
 from config import (SLEEP_MENU, SHOW_DEBUGGING_INFO, 
                     I2C_BUS, PCF8574_ADDRESSES, PCF8574_POLL_INTERVAL,
                     TRIGGER_INPUT, RECORDING_TIME)
+
 from dual_wifi_manager import DualWiFiGoProManager
+from gopro_downloader import download_both_latest, combine_side_by_side_background
 import rtc_manager
 from pcf8574_manager import PCF8574Manager
 
@@ -246,8 +248,21 @@ class GoProControllerUI:
 
         # 3) Stop all cameras
         stopped = await self.stop_recording_all_cameras()
-        self.print_clean(f"[DONE] Stopped {stopped} cameras.")
-        self.get_input_clean("\nPress Enter to continue...")
+        
+        # 4) ... after STOP on both cameras:
+        downloads = await download_both_latest(self.manager.wifi_controllers)
+
+        left = downloads.get("camera_1")
+        right = downloads.get("camera_2")
+
+        # Only attempt combine when BOTH exist:
+        if left and right:
+            combine_side_by_side_background(left, right)
+        else:
+            print("[FFMPEG] Not combining because a clip is missing.")
+
+            self.print_clean(f"[DONE] Stopped {stopped} cameras.")
+            self.get_input_clean("\nPress Enter to continue...")
 
     
     async def async_curl_request(self, url: str, interface: str) -> bool:
@@ -430,17 +445,8 @@ class GoProControllerUI:
                     self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} photos taken")
                     self.get_input_clean("\nPress Enter to continue...")
             
-            #elif choice == '2':
-                #self.print_clean("[REC] Starting recording on all cameras...")
-                #success_count = await self.start_recording_all_cameras()
-                #time.sleep(SLEEP_MENU)
-                #if SHOW_DEBUGGING_INFO == "ON":
-                    #self.print_clean(f"[RESULT] {success_count}/{len(self.manager.cameras)} cameras recording")
-                    #self.get_input_clean("\nPress Enter to continue...")
-            
             elif choice == '2':
                 await self.timed_recording_all_cameras()
-
 
             elif choice == '3':
                 self.print_clean("[STOP] Stopping recording on all cameras...")
