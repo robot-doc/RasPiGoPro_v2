@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Dual WiFi GoPro Manager - Modified for PARALLEL WiFi connections
+FIXED: Added missing imports and removed duplicate line
 """
 
 import asyncio
@@ -8,6 +9,8 @@ import json
 import logging
 import subprocess
 import time
+import sys
+import io
 from typing import Dict, List, Tuple
 
 from bleak import BleakScanner
@@ -31,6 +34,14 @@ class DualWiFiGoProManager:
         self.cameras = {}  # camera_id -> SingleGoProController
         self.wifi_controllers = {}  # camera_id -> WiFiCameraController
         self.interface_assignments = INTERFACE_ASSIGNMENTS
+        
+        # Set regulatory domain for 5GHz support (US regulations)
+        try:
+            subprocess.run("sudo iw reg set US", shell=True, 
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info("[WIFI] Regulatory domain set to US for 5GHz support")
+        except Exception as e:
+            logger.warning(f"[WIFI] Could not set regulatory domain: {e}")
     
     def load_config(self) -> dict:
         """Load multi-camera configuration"""
@@ -261,7 +272,7 @@ class DualWiFiGoProManager:
         
         # Step 2: Wait for GoPros to start broadcasting
         print("\n[STEP 2] Waiting for cameras to start broadcasting...")
-        await asyncio.sleep(6)  # Slightly shorter since we're more efficient
+        await asyncio.sleep(6)
         
         # Step 3: Auto-connect to WiFi networks (PARALLEL)
         print("[STEP 3] Auto-connecting to WiFi networks (PARALLEL)...")
@@ -269,7 +280,6 @@ class DualWiFiGoProManager:
         
         wifi_connected_count = sum(wifi_connected_results.values())
         print(f"\n[FINAL] {wifi_connected_count}/{len(self.cameras)} cameras ready for WiFi control")
-        print(f"[SPEED] Total time saved with parallel connections!")
         
         return wifi_connected_count > 0
     
@@ -326,8 +336,9 @@ class DualWiFiGoProManager:
     async def _parallel_connect_wifi(self) -> Dict[str, bool]:
         """Connect to WiFi networks in parallel with clean progress display"""
         
-        def connect_wifi_single(camera_id: str, camera: SingleGoProController) -> Tuple[str, bool]:
-            """Connect WiFi for a single camera (synchronous)"""
+        # SIMPLIFIED: Use the same method as manual connections, just run them in parallel
+        async def connect_wifi_single_async(camera_id: str, camera: SingleGoProController) -> Tuple[str, bool]:
+            """Connect WiFi for a single camera (async version)"""
             if not camera.wifi_ssid or not camera.wifi_password:
                 return camera_id, False
             
@@ -336,7 +347,8 @@ class DualWiFiGoProManager:
             print(f"[CONNECT] GoPro {cam_num} -> {camera.wifi_interface}... ", end="", flush=True)
             
             try:
-                success = self._setup_wifi_connection_auto(camera)
+                # Use the same method as manual connections but with reduced verbosity
+                success = self._setup_wifi_connection_for_auto(camera, camera.wifi_interface)
                 if success:
                     print("OK")
                 else:
@@ -346,14 +358,11 @@ class DualWiFiGoProManager:
                 print(f"ERROR: {e}")
                 return camera_id, False
         
-        # Create tasks for all cameras with WiFi credentials
-        loop = asyncio.get_event_loop()
+        # Create async tasks for all cameras with WiFi credentials
         tasks = []
-        
         for camera_id, camera in self.cameras.items():
             if camera.wifi_ssid and camera.wifi_password:
-                # Run in thread pool since WiFi setup is synchronous
-                task = loop.run_in_executor(None, connect_wifi_single, camera_id, camera)
+                task = connect_wifi_single_async(camera_id, camera)
                 tasks.append(task)
         
         if not tasks:
@@ -379,13 +388,21 @@ class DualWiFiGoProManager:
                 print(f"[ERROR] WiFi task failed with exception: {result}")
         
         return result_dict
-    
-    def _setup_wifi_connection_auto(self, camera: SingleGoProController) -> bool:
-        """Auto WiFi connection setup (QUIET MODE for parallel execution)"""
-        interface = camera.wifi_interface
+
+    # SIMPLIFIED AUTO-CONNECTION METHOD (avoids async executor issues)
+    def _setup_wifi_connection_for_auto(self, camera: SingleGoProController, interface: str) -> bool:
+        """
+        Simplified WiFi connection setup for auto-connection (avoids threading issues)
         
+        Args:
+            camera: Camera controller with WiFi credentials
+            interface: Network interface to use (wlan0/wlan1)
+        
+        Returns:
+            bool: Success status
+        """
         try:
-            # Step 1: Clean up existing connections (SILENT)
+            # Step 1: Clean up existing connections
             subprocess.run(f"sudo nmcli device set {interface} managed no", shell=True, 
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True,
@@ -400,36 +417,167 @@ class DualWiFiGoProManager:
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(1)
             
-            # Step 2: Bring interface up (SILENT)
+            # Step 2: Bring interface up
             subprocess.run(f"sudo ip link set {interface} up", shell=True,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(0.5)
             
-            # Step 3: Create and start wpa_supplicant (SILENT)
-            if not self._start_wpa_supplicant_quiet(camera, interface):
+            # Step 3: Start wpa_supplicant
+            wpa_config = f'''ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+network={{
+    ssid="{camera.wifi_ssid}"
+    psk="{camera.wifi_password}"
+    key_mgmt=WPA-PSK
+    priority=1
+    scan_ssid=1
+}}'''
+            
+            config_file = f"/tmp/gopro_{interface}.conf"
+            with open(config_file, "w") as f:
+                f.write(wpa_config)
+            
+            cmd = f"sudo wpa_supplicant -B -i {interface} -c {config_file} -D nl80211,wext"
+            result = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            if result.returncode != 0:
                 return False
             
-            # Step 4: Wait for WiFi connection (SILENT)
-            if not self._wait_for_wifi_connection_quiet(camera, interface):
+            # Step 4: Wait for WiFi connection
+            timeout = 8  # Shorter timeout for auto mode
+            
+            for attempt in range(timeout):
+                time.sleep(0.6)
+                
+                try:
+                    iwconfig_result = subprocess.run(f"iwconfig {interface}", shell=True, 
+                                                   capture_output=True, text=True)
+                    if iwconfig_result.returncode == 0:
+                        # Check if actually connected
+                        if camera.wifi_ssid in iwconfig_result.stdout and "Access Point:" in iwconfig_result.stdout:
+                            if "Not-Associated" not in iwconfig_result.stdout:
+                                break
+                except:
+                    pass
+            else:
+                return False  # Failed to connect within timeout
+            
+            # Step 5: Setup IP addressing
+            try:
+                dhcp_result = subprocess.run(f"sudo dhclient -v {interface}", shell=True, 
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           timeout=3)
+                dhcp_success = dhcp_result.returncode == 0
+            except subprocess.TimeoutExpired:
+                dhcp_success = False
+            
+            if not dhcp_success:
+                static_ip = STATIC_IPS[interface]
+                subprocess.run(f"sudo ip addr add {static_ip} dev {interface}", shell=True,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(0.5)
+            
+            # Step 6: Setup routing
+            metric = ROUTING_METRICS[interface]
+            subprocess.run(f"sudo ip route del {GOPRO_IP} 2>/dev/null", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo ip route del 10.5.5.0/24 2>/dev/null", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo ip route add {GOPRO_IP} dev {interface} metric {metric}", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"sudo ip route add 10.5.5.0/24 dev {interface} metric {metric}", shell=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1)
+            
+            # Step 7: Test connection and create controller
+            test_cmd = f"curl --interface {interface} --connect-timeout 5 --max-time 10 http://{GOPRO_IP}:8080/gp/gpControl/status"
+            test_result = subprocess.run(test_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            if test_result.returncode == 0:
+                # Create WiFi controller (simplified, no stdout redirection)
+                try:
+                    wifi_ctrl = WiFiCameraController(camera.camera_name, interface, GOPRO_IP)
+                    self.wifi_controllers[camera.camera_id] = wifi_ctrl
+                    return True
+                except Exception:
+                    return False
+            else:
+                return False
+                
+        except Exception as e:
+            return False
+    def _setup_wifi_connection(self, camera: SingleGoProController, interface: str, verbose: bool = True) -> bool:
+        """
+        Unified WiFi connection setup method
+        
+        Args:
+            camera: Camera controller with WiFi credentials
+            interface: Network interface to use (wlan0/wlan1) 
+            verbose: Whether to print detailed progress (False for parallel execution)
+        
+        Returns:
+            bool: Success status
+        """
+        def log(message: str, level: str = "info"):
+            """Conditional logging based on verbose mode"""
+            if verbose:
+                if level == "error":
+                    print(f"X {message}")
+                else:
+                    print(f"[{level.upper()}] {message}")
+        
+        # Determine output redirect for subprocess calls
+        output_redirect = None if verbose else subprocess.DEVNULL
+        
+        try:
+            # Step 1: Clean up existing connections
+            log(f"Cleaning up {interface}...", "clean")
+            subprocess.run(f"sudo nmcli device set {interface} managed no", shell=True, 
+                          stdout=output_redirect, stderr=output_redirect)
+            subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True,
+                          stdout=output_redirect, stderr=output_redirect)
+            subprocess.run(f"sudo dhclient -r {interface}", shell=True, 
+                          stdout=output_redirect, stderr=output_redirect)
+            subprocess.run(f"sudo ip addr flush dev {interface}", shell=True,
+                          stdout=output_redirect, stderr=output_redirect)
+            subprocess.run(f"sudo ip route flush dev {interface}", shell=True,
+                          stdout=output_redirect, stderr=output_redirect)
+            subprocess.run(f"sudo rm -f /var/run/wpa_supplicant/*", shell=True,
+                          stdout=output_redirect, stderr=output_redirect)
+            time.sleep(1)
+            
+            # Step 2: Bring interface up
+            log(f"Bringing {interface} up...", "wifi")
+            subprocess.run(f"sudo ip link set {interface} up", shell=True,
+                          stdout=output_redirect, stderr=output_redirect)
+            time.sleep(0.5)
+            
+            # Step 3: Start wpa_supplicant
+            if not self._start_wpa_supplicant(camera, interface, verbose, output_redirect):
                 return False
             
-            # Step 5: Setup IP addressing (SILENT)
-            if not self._setup_ip_addressing_quiet(interface):
+            # Step 4: Wait for WiFi connection
+            if not self._wait_for_wifi_connection(camera, interface, verbose):
                 return False
             
-            # Step 6: Setup routing (SILENT)
-            if not self._setup_routing_quiet(interface):
+            # Step 5: Setup IP addressing
+            if not self._setup_ip_addressing(interface, verbose, output_redirect):
                 return False
             
-            # Step 7: Test connection and create controller (SILENT)
-            return self._test_and_create_controller_quiet(camera, interface)
+            # Step 6: Setup routing
+            if not self._setup_routing(interface, verbose, output_redirect):
+                return False
+            
+            # Step 7: Test connection and create controller
+            return self._test_and_create_controller(camera, interface, verbose, output_redirect)
             
         except Exception as e:
-            print(f"X Auto WiFi setup failed for {camera.camera_name}: {e}")
+            log(f"WiFi setup failed for {camera.camera_name}: {e}", "error")
             return False
-    
-    def _start_wpa_supplicant_quiet(self, camera: SingleGoProController, interface: str) -> bool:
-        """Start wpa_supplicant quietly"""
+  
+    def _start_wpa_supplicant(self, camera: SingleGoProController, interface: str, 
+                             verbose: bool = True, output_redirect=None) -> bool:
+        """Unified wpa_supplicant startup"""
         wpa_config = f'''ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
 network={{
@@ -444,45 +592,72 @@ network={{
         with open(config_file, "w") as f:
             f.write(wpa_config)
         
+        if verbose:
+            print(f"[WPA] Starting wpa_supplicant on {interface}...")
+        
         cmd = f"sudo wpa_supplicant -B -i {interface} -c {config_file} -D nl80211,wext"
-        result = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = subprocess.run(cmd, shell=True, stdout=output_redirect, stderr=output_redirect, 
+                               capture_output=(output_redirect is not None), text=True)
+        
+        if result.returncode != 0 and verbose:
+            print(f"X wpa_supplicant failed on {interface}: {result.stderr if result.stderr else 'Unknown error'}")
         
         return result.returncode == 0
     
-    def _wait_for_wifi_connection_quiet(self, camera: SingleGoProController, interface: str) -> bool:
-        """Wait for WiFi connection quietly"""
-        for attempt in range(10):
-            time.sleep(0.8)
+    def _wait_for_wifi_connection(self, camera: SingleGoProController, interface: str, 
+                                 verbose: bool = True) -> bool:
+        """Unified WiFi connection waiting"""
+        if verbose:
+            print(f"[WAIT] Waiting for WiFi connection on {interface}...")
+        
+        timeout = 10 if verbose else 8  # Shorter timeout for parallel execution
+        
+        for attempt in range(timeout):
+            time.sleep(0.8 if verbose else 0.6)
             
             try:
                 iwconfig_result = subprocess.run(f"iwconfig {interface}", shell=True, 
-                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                               capture_output=True, text=True)
                 if iwconfig_result.returncode == 0:
-                    # Check if actually connected by testing for network name
-                    check_result = subprocess.run(f"iwconfig {interface}", shell=True, 
-                                                capture_output=True, text=True)
-                    if camera.wifi_ssid in check_result.stdout and "Access Point:" in check_result.stdout:
-                        if "Not-Associated" not in check_result.stdout:
+                    # Check if actually connected
+                    if camera.wifi_ssid in iwconfig_result.stdout and "Access Point:" in iwconfig_result.stdout:
+                        if "Not-Associated" not in iwconfig_result.stdout:
+                            if verbose:
+                                print(f"[OK] Connected to {camera.wifi_ssid}")
                             return True
+                
+                if verbose and attempt % 3 == 0:
+                    print(f"   ... attempt {attempt + 1}/{timeout}")
             except:
                 pass
         
+        if verbose:
+            print(f"X Failed to connect to {camera.wifi_ssid}")
         return False
     
-    def _setup_ip_addressing_quiet(self, interface: str) -> bool:
-        """Setup IP addressing quietly"""
-        # Try DHCP with short timeout
+    def _setup_ip_addressing(self, interface: str, verbose: bool = True, output_redirect=None) -> bool:
+        """Unified IP addressing setup"""
+        if verbose:
+            print(f"[DHCP] Trying DHCP on {interface}...")
+        
+        # Try DHCP with timeout
         try:
+            dhcp_timeout = TIMEOUTS['dhcp'] if verbose else 3
             dhcp_result = subprocess.run(f"sudo dhclient -v {interface}", shell=True, 
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+                                       stdout=output_redirect, stderr=output_redirect,
+                                       timeout=dhcp_timeout, capture_output=(output_redirect is not None), text=True)
             dhcp_success = dhcp_result.returncode == 0
         except subprocess.TimeoutExpired:
+            if verbose:
+                print(f"[WARN] DHCP timed out on {interface}, trying static IP...")
             dhcp_success = False
         
         if not dhcp_success:
+            if verbose:
+                print(f"[SETUP] Setting up static IP on {interface}...")
             static_ip = STATIC_IPS[interface]
             subprocess.run(f"sudo ip addr add {static_ip} dev {interface}", shell=True,
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                          stdout=output_redirect, stderr=output_redirect)
             time.sleep(0.5)
         
         # Verify IP assignment
@@ -491,58 +666,73 @@ network={{
         
         for line in ip_result.stdout.split('\n'):
             if "inet " in line and "127.0.0.1" not in line and "169.254" not in line:
+                interface_ip = line.strip().split()[1].split('/')[0]
+                if verbose:
+                    print(f"[OK] {interface} has IP: {interface_ip}")
                 return True
         
+        if verbose:
+            print(f"X No IP address assigned to {interface}")
         return False
     
-    def _setup_routing_quiet(self, interface: str) -> bool:
-        """Setup routing quietly"""
+    def _setup_routing(self, interface: str, verbose: bool = True, output_redirect=None) -> bool:
+        """Unified routing setup"""
+        if verbose:
+            print(f"[ROUTE] Setting up enhanced routing for {GOPRO_IP} via {interface}...")
+        
         # Remove existing routes
         subprocess.run(f"sudo ip route del {GOPRO_IP} 2>/dev/null", shell=True,
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      stdout=output_redirect, stderr=output_redirect)
         subprocess.run(f"sudo ip route del 10.5.5.0/24 2>/dev/null", shell=True,
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      stdout=output_redirect, stderr=output_redirect)
         
         # Add new routes with metrics
         metric = ROUTING_METRICS[interface]
         subprocess.run(f"sudo ip route add {GOPRO_IP} dev {interface} metric {metric}", shell=True,
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      stdout=output_redirect, stderr=output_redirect)
         subprocess.run(f"sudo ip route add 10.5.5.0/24 dev {interface} metric {metric}", shell=True,
-                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      stdout=output_redirect, stderr=output_redirect)
         
         time.sleep(1)
         return True
     
-    def _test_and_create_controller_quiet(self, camera: SingleGoProController, interface: str) -> bool:
-        """Test connection and create WiFi controller quietly"""
-        test_cmd = f"curl --interface {interface} --connect-timeout 5 --max-time 10 -s http://{GOPRO_IP}:8080/gp/gpControl/status"
-        test_result = subprocess.run(test_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    def _test_and_create_controller(self, camera: SingleGoProController, interface: str,
+                                   verbose: bool = True, output_redirect=None) -> bool:
+        """Unified connection testing and controller creation"""
+        if verbose:
+            print(f"[CHECK] Testing {camera.camera_name} with enhanced routing...")
+        
+        test_cmd = f"curl --interface {interface} --connect-timeout 5 --max-time 10 http://{GOPRO_IP}:8080/gp/gpControl/status"
+        test_result = subprocess.run(test_cmd, shell=True, stdout=output_redirect, stderr=output_redirect,
+                                   capture_output=(output_redirect is not None), text=True)
         
         if test_result.returncode == 0:
-            # Create controller without verbose output by temporarily redirecting stdout
-            import sys
-            import io
-            
-            # Capture the verbose output from WiFiCameraController
-            old_stdout = sys.stdout
-            sys.stdout = io.StringIO()
+            # For non-verbose mode, capture WiFiCameraController's verbose output
+            if not verbose:
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
             
             try:
                 wifi_ctrl = WiFiCameraController(camera.camera_name, interface, GOPRO_IP)
                 self.wifi_controllers[camera.camera_id] = wifi_ctrl
-                result = True
+                
+                if verbose:
+                    print(f"[OK] {camera.camera_name} connected via {interface}")
+                    print(f"   Stored in wifi_controllers['{camera.camera_id}']")
+                return True
             except Exception:
-                result = False
+                return False
             finally:
-                sys.stdout = old_stdout
-            
-            return result
+                if not verbose:
+                    sys.stdout = old_stdout
         else:
+            if verbose:
+                print(f"X {camera.camera_name} not responding")
             return False
-    
-    # Keep all existing methods for compatibility (manual connections, debugging, etc.)
+  
+    # MANUAL CONNECTION METHOD (uses unified method)
     def connect_to_wifi_interface(self, camera_id: str) -> bool:
-        """Manual connect to specific camera's WiFi (original method)"""
+        """Manual connect to specific camera's WiFi (uses unified method)"""
         if camera_id not in self.cameras:
             return False
         
@@ -558,153 +748,10 @@ network={{
         print(f"   Camera ID: {camera_id}")
         
         try:
-            return self._setup_wifi_connection(camera, interface)
+            # FIXED: Removed duplicate line
+            return self._setup_wifi_connection(camera, interface, verbose=True)
         except Exception as e:
             logger.error(f"WiFi connection error for {camera.camera_name}: {e}")
-            return False
-    
-    def _setup_wifi_connection(self, camera: SingleGoProController, interface: str) -> bool:
-        """Setup WiFi connection with proper routing (original method)"""
-        # Step 1: Clean up existing connections
-        print(f"[CLEAN] Cleaning up {interface}...")
-        subprocess.run(f"sudo pkill -f 'wpa_supplicant.*{interface}'", shell=True)
-        subprocess.run(f"sudo dhclient -r {interface}", shell=True, capture_output=True)
-        subprocess.run(f"sudo ip addr flush dev {interface}", shell=True)
-        subprocess.run(f"sudo ip route flush dev {interface}", shell=True)
-        time.sleep(2)
-        
-        # Step 2: Bring interface up
-        print(f"[WIFI] Bringing {interface} up...")
-        subprocess.run(f"sudo ip link set {interface} up", shell=True)
-        time.sleep(1)
-        
-        # Step 3: Create and start wpa_supplicant
-        if not self._start_wpa_supplicant(camera, interface):
-            return False
-        
-        # Step 4: Wait for WiFi connection
-        if not self._wait_for_wifi_connection(camera, interface):
-            return False
-        
-        # Step 5: Setup IP addressing
-        if not self._setup_ip_addressing(interface):
-            return False
-        
-        # Step 6: Setup routing
-        if not self._setup_routing(interface):
-            return False
-        
-        # Step 7: Test connection and create controller
-        return self._test_and_create_controller(camera, interface)
-    
-    def _start_wpa_supplicant(self, camera: SingleGoProController, interface: str) -> bool:
-        """Start wpa_supplicant for the interface"""
-        wpa_config = f'''ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
-update_config=1
-network={{
-    ssid="{camera.wifi_ssid}"
-    psk="{camera.wifi_password}"
-    key_mgmt=WPA-PSK
-    priority=1
-    scan_ssid=1
-}}'''
-        
-        config_file = f"/tmp/gopro_{interface}.conf"
-        with open(config_file, "w") as f:
-            f.write(wpa_config)
-        
-        print(f"[WPA] Starting wpa_supplicant on {interface}...")
-        cmd = f"sudo wpa_supplicant -B -i {interface} -c {config_file} -D nl80211,wext"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print(f"X wpa_supplicant failed on {interface}: {result.stderr}")
-            return False
-        return True
-    
-    def _wait_for_wifi_connection(self, camera: SingleGoProController, interface: str) -> bool:
-        """Wait for WiFi connection to establish (original method)"""
-        print(f"[WAIT] Waiting for WiFi connection on {interface}...")
-        
-        for attempt in range(TIMEOUTS['wifi_connect']):
-            time.sleep(1)
-            
-            try:
-                iwconfig_result = subprocess.run(f"iwconfig {interface}", shell=True, 
-                                               capture_output=True, text=True)
-                if camera.wifi_ssid in iwconfig_result.stdout:
-                    print(f"[OK] Connected to {camera.wifi_ssid}")
-                    return True
-                elif attempt % 3 == 0:
-                    print(f"   ... attempt {attempt + 1}/{TIMEOUTS['wifi_connect']}")
-            except:
-                pass
-        
-        print(f"X Failed to connect to {camera.wifi_ssid}")
-        return False
-    
-    def _setup_ip_addressing(self, interface: str) -> bool:
-        """Setup IP addressing for the interface"""
-        print(f"[DHCP] Trying DHCP on {interface}...")
-        
-        try:
-            dhcp_result = subprocess.run(f"sudo dhclient -v {interface}", shell=True, 
-                                       capture_output=True, text=True, timeout=TIMEOUTS['dhcp'])
-            dhcp_success = dhcp_result.returncode == 0
-        except subprocess.TimeoutExpired:
-            print(f"[WARN] DHCP timed out on {interface}, trying static IP...")
-            dhcp_success = False
-        
-        if not dhcp_success:
-            print(f"[SETUP] Setting up static IP on {interface}...")
-            static_ip = STATIC_IPS[interface]
-            subprocess.run(f"sudo ip addr add {static_ip} dev {interface}", shell=True)
-            time.sleep(1)
-        
-        # Verify IP assignment
-        ip_result = subprocess.run(f"ip addr show {interface}", shell=True, 
-                                 capture_output=True, text=True)
-        
-        for line in ip_result.stdout.split('\n'):
-            if "inet " in line and "127.0.0.1" not in line and "169.254" not in line:
-                interface_ip = line.strip().split()[1].split('/')[0]
-                print(f"[OK] {interface} has IP: {interface_ip}")
-                return True
-        
-        print(f"X No IP address assigned to {interface}")
-        return False
-    
-    def _setup_routing(self, interface: str) -> bool:
-        """Setup routing for the interface"""
-        print(f"[ROUTE] Setting up enhanced routing for {GOPRO_IP} via {interface}...")
-        
-        # Remove existing routes
-        subprocess.run(f"sudo ip route del {GOPRO_IP} 2>/dev/null", shell=True)
-        subprocess.run(f"sudo ip route del 10.5.5.0/24 2>/dev/null", shell=True)
-        
-        # Add new routes with metrics
-        metric = ROUTING_METRICS[interface]
-        subprocess.run(f"sudo ip route add {GOPRO_IP} dev {interface} metric {metric}", shell=True)
-        subprocess.run(f"sudo ip route add 10.5.5.0/24 dev {interface} metric {metric}", shell=True)
-        
-        time.sleep(2)
-        return True
-    
-    def _test_and_create_controller(self, camera: SingleGoProController, interface: str) -> bool:
-        """Test connection and create WiFi controller"""
-        print(f"[CHECK] Testing {camera.camera_name} with enhanced routing...")
-        
-        test_cmd = f"curl --interface {interface} --connect-timeout 5 --max-time 10 http://{GOPRO_IP}:8080/gp/gpControl/status"
-        test_result = subprocess.run(test_cmd, shell=True, capture_output=True, text=True)
-        
-        if test_result.returncode == 0:
-            wifi_ctrl = WiFiCameraController(camera.camera_name, interface, GOPRO_IP)
-            self.wifi_controllers[camera.camera_id] = wifi_ctrl
-            print(f"[OK] {camera.camera_name} connected via {interface}")
-            print(f"   Stored in wifi_controllers['{camera.camera_id}']")
-            return True
-        else:
-            print(f"X {camera.camera_name} not responding")
             return False
     
     def show_network_debug(self):

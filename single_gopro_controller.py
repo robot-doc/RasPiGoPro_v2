@@ -89,36 +89,6 @@ class SingleGoProController:
             logger.error(f"Failed to read WiFi credentials for {self.camera_name}: {e}")
             return False
     
-    async def send_command(self, command_bytes: bytes, description: str = "") -> bool:
-        """Send command to camera via Bluetooth"""
-        try:
-            if not self.client or not self.client.is_connected:
-                return False
-            
-            await self.client.write_gatt_char(self.command_char, command_bytes)
-            logger.info(f"[CMD] {self.camera_name}: {description}")
-            await asyncio.sleep(1)
-            return True
-        except Exception as e:
-            logger.error(f"Command failed for {self.camera_name}: {e}")
-            return False
-    
-    async def take_photo_bt(self) -> bool:
-        """Take photo via Bluetooth"""
-        await self.send_command(bytes([0x02, 0x02, 0x01]), "Set photo mode")
-        await asyncio.sleep(1)
-        return await self.send_command(bytes([0x02, 0x01, 0x01]), "Take photo")
-    
-    async def start_recording_bt(self) -> bool:
-        """Start recording via Bluetooth"""
-        await self.send_command(bytes([0x02, 0x02, 0x00]), "Set video mode")
-        await asyncio.sleep(1)
-        return await self.send_command(bytes([0x02, 0x01, 0x01]), "Start recording")
-    
-    async def stop_recording_bt(self) -> bool:
-        """Stop recording via Bluetooth"""
-        return await self.send_command(bytes([0x02, 0x01, 0x00]), "Stop recording")
-    
     async def disconnect(self):
         """Disconnect Bluetooth with robust error handling"""
         if not self.client:

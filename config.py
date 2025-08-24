@@ -52,7 +52,6 @@ TIMEOUTS = {
 GOPRO_DEVICE_PATTERNS = ["GoPro", "GP", "HERO", "Cam"]
 
 # HTTP timeouts
-HTTP_TIMEOUT = 8
 CURL_TIMEOUT = 10
 
 # Show debugging information
@@ -61,12 +60,25 @@ SHOW_DEBUGGING_INFO = "OFF"
 
 # I2C / PCF8574 configuration
 I2C_BUS = 1
-# You said both modules are at 0x20 hex; if that’s truly two separate modules on the same bus,
-# they must have different A0/A1/A2 wiring. You can list multiple addresses here.
-PCF8574_ADDRESSES = [0x38]   # add 0x21, 0x22, ... if you have more
-PCF8574_POLL_INTERVAL = 0.5  # seconds for live view refresh
 
+# INPUT modules (read-only)
+PCF8574_INPUT_ADDRESSES = [0x38]    # your current input expander(s)
 
-# Hardware triggered recording
+# OUTPUT modules (write-only / latched by us)
+PCF8574_OUTPUT_ADDRESSES = [0x20]   # your new output expander
+
+PCF8574_POLL_INTERVAL = 0.1  # seconds for live view refresh
+
+# Output wiring semantics
+# NOTE: Most PCF8574 “LED boards” are wired ACTIVE-LOW (0 = LED ON).
+# Set this to True if your board is active-low, else False if active-high.
+PCF8574_OUTPUT_ACTIVE_LOW = True
+
+# Which output pin we toggle as a “BUSY” signal (0..7)
+# True while: (1) cameras are recording in trigger mode AND (2) the combined video is still being saved
+BUSY_OUTPUT_PIN = 7
+
+# Hardware triggered recording (unchanged)
 TRIGGER_INPUT = 7
-RECORDING_TIME = 5.0
+#RECORDING_TIME = 38.0 #Approx cycle time of robot
+RECORDING_TIME = 10.0
