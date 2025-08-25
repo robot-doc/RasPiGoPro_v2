@@ -80,5 +80,5 @@ BUSY_OUTPUT_PIN = 7
 
 # Hardware triggered recording (unchanged)
 TRIGGER_INPUT = 7
-#RECORDING_TIME = 38.0 #Approx cycle time of robot
-RECORDING_TIME = 10.0
+RECORDING_TIME = 38.0 #Approx cycle time of robot
+#RECORDING_TIME = 10.0
