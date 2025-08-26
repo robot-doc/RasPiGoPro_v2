@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+91#!/usr/bin/env python3
 """
 Main entry point for Dual WiFi Interface GoPro Controller
 - Unified trigger system (Manual / I²C) with single-key exit
