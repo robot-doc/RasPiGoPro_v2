@@ -1,0 +1,28 @@
+{
+  "cameras": {
+    "camera_1": {
+      "name": "GoPro 1 (GoPro 3811) \u2192 wlan0",
+      "device_address": "ED:1B:28:EC:49:B0",
+      "device_addresses": [
+        "ED:1B:28:EC:49:B0"
+      ],
+      "wifi_ssid": "HERO8 Achim 1",
+      "wifi_password": "Zvt-shk-qv5",
+      "wifi_interface": "wlan0",
+      "last_connected": 1755809566.8620634
+    },
+    "camera_2": {
+      "name": "GoPro 2 (GoPro 4511) \u2192 wlan1",
+      "device_address": "D8:0E:A4:50:ED:14",
+      "device_addresses": [
+        "D8:0E:A4:50:ED:14"
+      ],
+      "wifi_ssid": "HERO8 Achim 3",
+      "wifi_password": "9Pj-8tP-fNm",
+      "wifi_interface": "wlan1",
+      "last_connected": 1755809583.4895363
+    }
+  },
+  "trigger_mode": "i2c",
+  "custom_recording_time": 15.0
+}

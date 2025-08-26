@@ -3,11 +3,10 @@
 PCF8574 I/O expander manager
 - Supports multiple INPUT devices (safe read pattern)
 - Supports multiple OUTPUT devices with latched writes
-- NEW: convenient per-pin reads, e.g. manager.read_input6()
 """
 
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 try:
     from smbus2 import SMBus
@@ -15,7 +14,7 @@ except ImportError:
     SMBus = None
 
 
-# -------------------- INPUT device --------------------
+# -------------------- INPUT device (unchanged behavior) --------------------
 
 class PCF8574Device:
     def __init__(self, bus: int, address: int, name: Optional[str] = None):
@@ -58,18 +57,6 @@ class PCF8574Device:
             return None
         return {pin: (raw >> pin) & 0x01 for pin in range(8)}
 
-    # NEW: per-pin read helper
-    def read_pin(self, pin_index: int) -> Optional[int]:
-        """
-        Read a single pin level (0..7). Returns 1 for HIGH, 0 for LOW, or None on error.
-        """
-        if not (0 <= pin_index <= 7):
-            return None
-        raw = self.read_raw()
-        if raw is None:
-            return None
-        return (raw >> pin_index) & 0x01
-
     def close(self):
         if self._bus:
             try:
@@ -78,8 +65,7 @@ class PCF8574Device:
                 pass
             self._bus = None
 
-
-# -------------------- OUTPUT device --------------------
+# -------------------- OUTPUT device (new) --------------------
 
 class PCF8574OutputDevice:
     """
@@ -177,29 +163,6 @@ class PCF8574Manager:
         for dev in self.input_devices:
             out[dev.name] = dev.read_inputs()
         return out
-
-    # NEW: read a single pin from a specific INPUT device (default: first one)
-    def read_input(self, pin_index: int, device_index: int = 0) -> Optional[bool]:
-        """
-        Read a single input pin.
-        :param pin_index: 0..7
-        :param device_index: which input device to read (default 0)
-        :return: True for HIGH, False for LOW, or None on error
-        """
-        if not (0 <= device_index < len(self.input_devices)):
-            return None
-        level = self.input_devices[device_index].read_pin(pin_index)
-        if level is None:
-            return None
-        return bool(level)
-
-    # NEW: convenience shortcut specifically for input pin 6 on the first INPUT device
-    def read_input6(self, device_index: int = 0) -> Optional[bool]:
-        """
-        Shortcut for reading pin 6 (P6) on an INPUT device.
-        Returns True for HIGH, False for LOW, or None on error.
-        """
-        return self.read_input(6, device_index=device_index)
 
     # ----- OUTPUT API -----
     def set_output_pin(self, device_index: int, pin: int, value: bool) -> bool:

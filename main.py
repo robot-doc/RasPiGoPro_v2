@@ -2,7 +2,8 @@
 """
 Main entry point for Dual WiFi Interface GoPro Controller
 - Unified trigger system (Manual / I²C) with single-key exit
-- BUSY output asserted while recording and while concat is running
+- BUSY output asserted during recording and download (concat runs in background)
+- Custom recording time configuration
 """
 
 import asyncio
@@ -57,6 +58,9 @@ class GoProControllerUI:
 
         # Persisted trigger mode from config (manual | i2c)
         self.trigger_mode = self.manager.config.get("trigger_mode", "manual")
+        
+        # Custom recording time (load from config or use default)
+        self.custom_recording_time = self.manager.config.get("custom_recording_time", RECORDING_TIME)
 
     # ---------- terminal helpers ----------
 
@@ -90,6 +94,14 @@ class GoProControllerUI:
         """Persist trigger mode in the shared config file."""
         try:
             self.manager.config["trigger_mode"] = self.trigger_mode
+            self.manager.save_config()
+        except Exception:
+            pass
+
+    def _save_recording_time(self):
+        """Persist custom recording time in the shared config file."""
+        try:
+            self.manager.config["custom_recording_time"] = self.custom_recording_time
             self.manager.save_config()
         except Exception:
             pass
@@ -312,14 +324,15 @@ class GoProControllerUI:
     async def timed_recording_all_cameras(self):
         """Start both cameras, record for configured time, then stop.
         Trigger source is selected by menu item 5 (Manual / I²C).
-        BUSY output stays TRUE during recording and while concat is running.
+        BUSY output stays TRUE during recording and download, then FALSE.
+        Video concat continues in background after BUSY goes FALSE.
         """
         if not self.manager.wifi_controllers:
             self.print_clean("[ERROR] No WiFi controllers available! Use option 91 first.")
             self.get_input_clean("\nPress Enter to continue...")
             return
 
-        self.print_clean(f"\n[ARMED] Timed recording mode ({RECORDING_TIME:.1f}s)")
+        self.print_clean(f"\n[ARMED] Timed recording mode ({self.custom_recording_time:.1f}s)")
         self.print_clean(f"[MODE] Trigger mode: {self._trigger_mode_label()}")
         self.print_clean("")
 
@@ -339,8 +352,8 @@ class GoProControllerUI:
                     self._set_busy_output(False)
                     continue
 
-                self.print_clean(f"[RUNNING] Recording for {RECORDING_TIME:.1f}s...")
-                await asyncio.sleep(RECORDING_TIME)
+                self.print_clean(f"[RUNNING] Recording for {self.custom_recording_time:.1f}s...")
+                await asyncio.sleep(self.custom_recording_time)
 
                 await self.stop_recording_all_cameras()
                 await asyncio.sleep(2)
@@ -355,11 +368,8 @@ class GoProControllerUI:
                 if cam1_path and cam2_path:
                     out_path = start_concat_background(cam1_path, cam2_path)
                     if out_path:
-                        self.print_clean("[COMBINE] Waiting for combine to finish...")
-                        try:
-                            await self._wait_for_concat(out_path)
-                        except Exception:
-                            await asyncio.sleep(2.0)
+                        self.print_clean(f"[COMBINE] Background concat started → {out_path.name}")
+                        self.print_clean("[COMBINE] Processing will continue in background")
                     else:
                         self.print_clean("[COMBINE] Could not start concat.")
                 else:
@@ -371,24 +381,10 @@ class GoProControllerUI:
                     self.print_clean(f"[COMBINE] Skipped: missing downloads from {', '.join(missing)}")
 
             finally:
-                # BUSY OFF (after recording + concat wait)
+                # BUSY OFF (after recording + download, concat continues in background)
                 self._set_busy_output(False)
 
             self.print_clean("[READY] Ready for next trigger...\n")
-
-    async def _wait_for_concat(self, out_path):
-        """Wait until the background ffmpeg that writes out_path finishes."""
-        pattern = f"ffmpeg.*{out_path.name}"
-        while True:
-            proc = await asyncio.create_subprocess_exec(
-                "pgrep", "-f", pattern,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, _ = await proc.communicate()
-            if proc.returncode != 0:  # no process found
-                break
-            await asyncio.sleep(0.5)
 
     # ---------- unified trigger (manual + I²C) with single-key 'q' exit ----------
 
@@ -507,11 +503,12 @@ class GoProControllerUI:
             self.print_clean("=" * 60)
             self.print_clean("")
             self.print_clean("1. Take photos on ALL cameras")
-            self.print_clean("2. Timed recording on ALL cameras (uses selected trigger)")
+            self.print_clean(f"2. Timed recording on ALL cameras ({self.custom_recording_time:.1f}s)")
             self.print_clean("3. Stop recording on ALL cameras")
             self.print_clean("4. Enable WiFi on ALL cameras")
             self.print_clean(f"5. Trigger mode: {self._trigger_mode_label()}")
             self.print_clean("6. Delete ALL media on ONE camera")
+            self.print_clean(f"7. Set recording time (current: {self.custom_recording_time:.1f}s)")
             self.print_clean("0. Back to main menu")
             self.print_clean("")
 
@@ -609,6 +606,42 @@ class GoProControllerUI:
                 else:
                     self.print_clean("X Delete-all request failed (check WiFi connection).")
                 self.get_input_clean("\nPress Enter to continue...")
+
+            elif choice == "7":
+                # Set custom recording time
+                self.reset_terminal()
+                self.print_clean("=" * 60)
+                self.print_clean("    SET RECORDING TIME")
+                self.print_clean("=" * 60)
+                self.print_clean(f"\nCurrent recording time: {self.custom_recording_time:.1f} seconds")
+                self.print_clean(f"Default from config: {RECORDING_TIME:.1f} seconds")
+                self.print_clean("")
+                self.print_clean("Enter new recording time in seconds:")
+                self.print_clean("  Examples: 10.0, 38.5, 60, 120")
+                self.print_clean("  Range: 1.0 to 300.0 seconds")
+                
+                new_time_str = self.get_input_clean("\nRecording time (or 0 to cancel): ")
+                
+                if new_time_str == "0":
+                    continue
+                
+                try:
+                    new_time = float(new_time_str)
+                    if 1.0 <= new_time <= 300.0:
+                        old_time = self.custom_recording_time
+                        self.custom_recording_time = new_time
+                        self.print_clean(f"\n[OK] Recording time changed: {old_time:.1f}s → {new_time:.1f}s")
+                        
+                        # Save to config for persistence
+                        self._save_recording_time()
+                        self.print_clean("[SAVE] Setting saved to config file")
+                    else:
+                        self.print_clean("\n[ERROR] Time must be between 1.0 and 300.0 seconds")
+                        
+                except ValueError:
+                    self.print_clean("\n[ERROR] Invalid number format. Please enter a decimal number.")
+                
+                time.sleep(2)
 
             elif choice == "0":
                 break
@@ -842,6 +875,7 @@ class GoProControllerUI:
         self.print_clean("")
         self.print_clean("[CONFIG] Camera 1 (GoPro 3811) -> wlan0")
         self.print_clean("[CONFIG] Camera 2 (TBD) -> wlan1")
+        self.print_clean(f"[TIME] Recording time: {self.custom_recording_time:.1f}s")
         self.print_clean("")
 
         # Sync time with RTC/NTP at startup

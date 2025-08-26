@@ -36,7 +36,7 @@ ROUTING_METRICS = {
 }
 
 # File paths
-CONFIG_FILE = Path.home() / ".dual_wifi_gopro_config.json"
+CONFIG_FILE = Path(__file__).parent / ".dual_wifi_gopro_config.json"
 
 # Timeouts and delays
 TIMEOUTS = {
@@ -80,5 +80,8 @@ BUSY_OUTPUT_PIN = 7
 
 # Hardware triggered recording (unchanged)
 TRIGGER_INPUT = 7
+
 RECORDING_TIME = 38.0 #Approx cycle time of robot
 #RECORDING_TIME = 10.0
+MIN_RECORDING_TIME = 1.0    # Minimum recording time in seconds
+MAX_RECORDING_TIME = 300.0  # Maximum recording time in seconds (5 minutes)
